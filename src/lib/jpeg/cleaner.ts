@@ -1,4 +1,6 @@
 import { LIMITS } from '../../config/product'
+import { inspectJpeg, readJpegFrameSize } from './parser'
+import { selectJpegCleaningStrategy } from './strategy'
 import { stripJpegMetadata, verifyCleanedJpeg } from './stripper'
 import { JpegError, type CleanedJpeg } from './types'
 
@@ -74,7 +76,20 @@ export const readJpegDimensions = async (blob: Blob): Promise<{ width: number; h
   }
 }
 
-export const cleanJpeg = async (blob: Blob): Promise<CleanedJpeg> => {
+const cleanedJpeg = (bytes: Uint8Array, width: number, height: number, strategy: CleanedJpeg['strategy']): CleanedJpeg => {
+  const outputBuffer = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(outputBuffer).set(bytes)
+  return {
+    blob: new Blob([outputBuffer], { type: 'image/jpeg' }),
+    bytes,
+    width,
+    height,
+    remainingMetadataBlocks: 0,
+    strategy,
+  }
+}
+
+const rebuildJpeg = async (blob: Blob): Promise<CleanedJpeg> => {
   const decoded = await decodeJpeg(blob)
   try {
     assertSafeDimensions(decoded.width, decoded.height)
@@ -90,18 +105,22 @@ export const cleanJpeg = async (blob: Blob): Promise<CleanedJpeg> => {
     const encoded = await canvasToBlob(canvas)
     const stripped = stripJpegMetadata(await encoded.arrayBuffer())
     verifyCleanedJpeg(stripped)
-    const outputBuffer = new ArrayBuffer(stripped.byteLength)
-    new Uint8Array(outputBuffer).set(stripped)
-    const outputBlob = new Blob([outputBuffer], { type: 'image/jpeg' })
-
-    return {
-      blob: outputBlob,
-      bytes: stripped,
-      width: decoded.width,
-      height: decoded.height,
-      remainingMetadataBlocks: 0,
-    }
+    return cleanedJpeg(stripped, decoded.width, decoded.height, 'canvas-rebuild')
   } finally {
     decoded.close()
   }
+}
+
+export const cleanJpeg = async (blob: Blob): Promise<CleanedJpeg> => {
+  const sourceBytes = new Uint8Array(await blob.arrayBuffer())
+  const strategy = selectJpegCleaningStrategy(inspectJpeg(sourceBytes))
+  if (strategy === 'canvas-rebuild') return rebuildJpeg(blob)
+
+  const stripped = strategy === 'already-clean' ? sourceBytes : stripJpegMetadata(sourceBytes)
+  verifyCleanedJpeg(stripped)
+  if (stripped.byteLength > sourceBytes.byteLength) {
+    throw new JpegError('Direct JPEG cleaning unexpectedly increased the file size.', 'VERIFICATION_FAILED')
+  }
+  const frame = readJpegFrameSize(sourceBytes)
+  return cleanedJpeg(stripped, frame?.width ?? 0, frame?.height ?? 0, strategy)
 }

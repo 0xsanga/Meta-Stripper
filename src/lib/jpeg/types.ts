@@ -37,6 +37,7 @@ export interface CleanedJpeg {
   width: number
   height: number
   remainingMetadataBlocks: number
+  strategy: 'direct-strip' | 'canvas-rebuild' | 'already-clean'
 }
 
 export type JpegErrorCode =

@@ -43,7 +43,7 @@ export interface CleanedPng {
   strategy: PngCleaningStrategy
 }
 
-export type PngCleaningStrategy = 'direct-strip' | 'canvas-rebuild'
+export type PngCleaningStrategy = 'direct-strip' | 'canvas-rebuild' | 'already-clean'
 
 export type PngErrorCode =
   | 'INVALID_SIGNATURE'

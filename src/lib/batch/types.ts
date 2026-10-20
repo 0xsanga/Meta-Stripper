@@ -5,6 +5,7 @@ import type { PngCleaningStrategy, PngInspectionReport } from '../png/types'
 export type QueueItemStatus =
   | 'inspecting'
   | 'ready'
+  | 'already-clean'
   | 'cleaning'
   | 'verified'
   | 'unsupported'

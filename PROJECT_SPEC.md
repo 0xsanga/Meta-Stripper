@@ -29,7 +29,7 @@ Every successfully cleaned and verified output uses one global sequence across J
 
 Only the next number is stored under `meta-stripper.nextSequence` in `localStorage`. The initial and recovery value is 1. Missing, invalid, negative, zero, non-integer, and unsafe values reset to 1. If browser storage is unavailable, an in-memory counter is used with a clear persistence warning.
 
-Inspection, upload, cancellation, rejection, and failure never consume a number. The counter advances only after cleaning and verification succeed. Repeated downloads of one result retain its assigned name. Resetting requires confirmation, is unavailable while cleaning, changes only the next number to 1, and never alters previously downloaded files.
+Inspection, upload, cancellation, rejection, and failure never consume a number. The counter advances only after cleaning and verification succeed. An image with no removable metadata stays unnumbered until the user creates its downloadable result. Repeated downloads of one result retain its assigned name. Resetting requires confirmation, is unavailable while cleaning, changes only the next number to 1, and never alters previously downloaded files.
 
 No original filename, file content, metadata report, or output is stored in `localStorage`, IndexedDB, cookies, or remotely.
 
@@ -37,7 +37,7 @@ No original filename, file content, metadata report, or output is stored in `loc
 
 JPEG parsing uses `ArrayBuffer`/`Uint8Array`, validates the start-of-image signature, performs strict segment bounds checks, and stops metadata traversal when compressed scan data begins. Malformed input must fail in a controlled way.
 
-Deep Clean decodes locally with orientation applied, draws the displayed image into a local canvas, and re-encodes at JPEG quality 0.98. The encoded result is stripped of removable APP and COM segments, rescanned, and rejected if any removable block remains. Rebuilding JPEG pixels is not lossless and can change compression and file size.
+JPEG Deep Clean chooses one path. When EXIF orientation is absent or upright and the file has no embedded ICC profile, removable APP and COM segments are deleted and the compressed scan is copied through. That result cannot grow. EXIF orientation other than upright, or an ICC profile, decodes locally with orientation applied, draws the displayed image into a local canvas, and re-encodes at JPEG quality 0.98. The encoded result is stripped of removable APP and COM segments. Rebuilding JPEG pixels is not lossless and can change compression and file size. Both results are rescanned and rejected if any removable block remains. A JPEG with no removable metadata is not rebuilt.
 
 Static PNG Deep Clean validates every chunk and CRC, refuses APNG files carrying `acTL`, and selects one of two internal strategies:
 

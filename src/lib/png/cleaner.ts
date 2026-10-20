@@ -17,8 +17,9 @@ export const cleanPng = async (blob: Blob): Promise<CleanedPng> => {
   const sourceReport = inspectPng(sourceBytes)
   const strategy = selectPngCleaningStrategy(sourceReport)
 
-  if (strategy === 'direct-strip') {
-    const stripped = directStripPngMetadata(sourceBytes)
+  if (strategy === 'already-clean' || strategy === 'direct-strip') {
+    const source = new Uint8Array(sourceBytes)
+    const stripped = strategy === 'already-clean' ? source : directStripPngMetadata(sourceBytes)
     verifyCleanedPng(stripped)
     const outputBuffer = new ArrayBuffer(stripped.byteLength)
     new Uint8Array(outputBuffer).set(stripped)

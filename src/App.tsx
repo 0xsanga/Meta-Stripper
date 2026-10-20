@@ -7,10 +7,13 @@ import { validateImageFile, type SupportedImageFormat } from './lib/fileValidati
 import { formatBytes } from './lib/format'
 import { cleanJpeg, readJpegDimensions } from './lib/jpeg/cleaner'
 import { inspectJpeg } from './lib/jpeg/parser'
+import { selectJpegCleaningStrategy } from './lib/jpeg/strategy'
+import { verifyCleanedJpeg } from './lib/jpeg/stripper'
 import type { JpegInspectionReport, MetadataBlock } from './lib/jpeg/types'
 import { cleanPng } from './lib/png/cleaner'
 import { inspectPng } from './lib/png/parser'
 import { selectPngCleaningStrategy } from './lib/png/strategy'
+import { verifyCleanedPng } from './lib/png/stripper'
 import type { PngCleaningStrategy, PngInspectionReport, PngMetadataBlock } from './lib/png/types'
 import { createSequenceCounter } from './lib/sequenceCounter'
 
@@ -57,7 +60,14 @@ const displayBlocksFor = (item: QueueItem): DisplayBlock[] => {
 const removableCountFor = (item: QueueItem): number => displayBlocksFor(item).filter((block) => block.removable).length
 const formatName = (format?: SupportedImageFormat): string => format === 'png' ? 'PNG' : format === 'jpeg' ? 'JPEG' : 'Unknown'
 const statusLabel: Record<QueueItem['status'], string> = {
-  inspecting: 'Inspecting', ready: 'Ready', cleaning: 'Cleaning', verified: 'Verified clean', unsupported: 'Unsupported', failed: 'Failed',
+  inspecting: 'Inspecting', ready: 'Ready', 'already-clean': 'Already clean', cleaning: 'Cleaning', verified: 'Verified clean', unsupported: 'Unsupported', failed: 'Failed',
+}
+
+const resultExplanation = (item: QueueItem): string => {
+  if (item.result?.strategy === 'already-clean') return 'No removable metadata was found, so the original image bytes were kept.'
+  if (item.result?.strategy === 'direct-strip') return 'Metadata removed without recompressing the image pixels.'
+  if (item.format === 'png') return 'The pixels were rebuilt to safely normalise orientation or colour interpretation. Browser rendering may normalise colour values.'
+  return 'Rebuilt at high JPEG quality with orientation normalised.'
 }
 const kindLabel: Record<MetadataBlock['kind'], string> = { privacy: 'Privacy', provenance: 'Provenance', technical: 'Technical' }
 
@@ -87,8 +97,8 @@ function UploadPanel({ onFiles, compact = false, disabled = false }: { onFiles: 
   </div>
 }
 
-function QueueItemCard({ item, actionsDisabled, onClean, onRetry, onRemove, onCleanAnother }: {
-  item: QueueItem; actionsDisabled: boolean; onClean: () => void; onRetry: () => void; onRemove: () => void; onCleanAnother?: () => void
+function QueueItemCard({ item, actionsDisabled, onClean, onDownloadClean, onRetry, onRemove, onCleanAnother }: {
+  item: QueueItem; actionsDisabled: boolean; onClean: () => void; onDownloadClean: () => void; onRetry: () => void; onRemove: () => void; onCleanAnother?: () => void
 }) {
   const blocks = displayBlocksFor(item)
   const removable = blocks.filter((block) => block.removable)
@@ -99,20 +109,22 @@ function QueueItemCard({ item, actionsDisabled, onClean, onRetry, onRemove, onCl
     <div className="queue-thumb">{imageUrl ? <img src={imageUrl} alt={`Preview of ${item.file.name}`} /> : <span>{item.status === 'inspecting' ? <span className="spinner small" /> : icon.shield}</span>}</div>
     <div className="queue-content">
       <div className="queue-heading"><div><p id={`item-title-${item.id}`} className="queue-filename" title={item.file.name}>{item.file.name}</p><span>{formatName(item.format)}{item.width && item.height ? ` · ${item.width.toLocaleString()} × ${item.height.toLocaleString()} px` : ''} · {formatBytes(item.file.size)}</span></div><span className={`status-pill status-pill-${item.status}`}>{statusLabel[item.status]}</span></div>
-      {(item.status === 'ready' || item.status === 'verified') && <div className="queue-report">
-        <h3>{item.status === 'verified' ? 'Verified clean' : removable.length === 0 ? 'No removable blocks found' : `${removable.length} removable block${removable.length === 1 ? '' : 's'} found`}</h3>
+      {(item.status === 'ready' || item.status === 'already-clean' || item.status === 'verified') && <div className="queue-report">
+        <h3>{item.status === 'verified' ? 'Verified clean' : item.status === 'already-clean' ? 'No removable metadata' : removable.length === 0 ? 'No removable blocks found' : `${removable.length} removable block${removable.length === 1 ? '' : 's'} found`}</h3>
         {categories.length > 0 && <div className="category-row" aria-label={`Metadata categories found in ${item.file.name}`}>{categories.map((category) => <span key={category}>{category}</span>)}</div>}
         {blocks.length > 0 && item.status !== 'verified' && <details className="item-details"><summary>Review detected metadata</summary><div className="metadata-list">{blocks.map((block, index) => <section key={`${block.locator}-${index}`}><div><strong>{block.name}</strong><span className={`kind kind-${block.kind}`}>{kindLabel[block.kind]}</span></div><p>{block.explanation}</p><small>{block.locator} · approximately {formatBytes(block.approximateBytes)}</small></section>)}</div></details>}
+        {item.status === 'already-clean' && <p className="strategy-preview">Nothing removable was found. Downloading keeps the original bytes and assigns the next MS name.</p>}
         {item.knownStrategy && item.status === 'ready' && <p className="strategy-preview">Planned method: <strong>{item.knownStrategy === 'direct-strip' ? 'direct metadata strip' : 'canvas rebuild'}</strong></p>}
         {pngReport && <p className="transparency-inline">PNG transparency is preserved.</p>}
-        {item.result && <div className="verified-result"><span className="assigned-name">{item.result.filename}</span><p>{item.result.strategy === 'direct-strip' ? 'Metadata removed without recompressing the image pixels.' : item.format === 'png' ? 'The pixels were rebuilt to safely normalise orientation or colour interpretation. Browser rendering may normalise colour values.' : 'Rebuilt at high JPEG quality with orientation normalised.'}</p></div>}
+        {item.result && <div className="verified-result"><span className="assigned-name">{item.result.filename}</span><p>{resultExplanation(item)}</p></div>}
       </div>}
       {item.status === 'unsupported' && <p className="item-alert" role="status"><strong>This PNG is animated.</strong> Cleaning is unavailable because rebuilding would flatten or damage the animation. No file number was used.</p>}
       {item.status === 'failed' && <p className="item-alert error" role="alert">{item.error} <small>No file number was used.</small></p>}
       {item.status === 'inspecting' && <div className="item-working"><h3>Inspecting your image…</h3><p>Inspecting safely on this device.</p></div>}
-      {item.status === 'cleaning' && <div className="item-working"><h3>Rebuilding your image…</h3><p>Cleaning and verifying locally.</p></div>}
+      {item.status === 'cleaning' && <div className="item-working"><h3>{item.knownStrategy === 'canvas-rebuild' ? 'Rebuilding your image…' : 'Removing metadata…'}</h3><p>Cleaning and verifying locally.</p></div>}
       <div className="queue-actions">
         {item.status === 'ready' && <button className="button button-accent" type="button" disabled={actionsDisabled} onClick={onClean} aria-label={`Deep Clean ${item.file.name}`}>{icon.sparkle} Deep Clean</button>}
+        {item.status === 'already-clean' && <button className="button button-accent" type="button" disabled={actionsDisabled} onClick={onDownloadClean} aria-label={`Download ${item.file.name} without rebuilding`}>{icon.download} Download without rebuilding</button>}
         {item.status === 'failed' && <button className="button button-light" type="button" disabled={actionsDisabled} onClick={onRetry} aria-label={`Retry ${item.failureStage === 'inspection' ? 'inspection' : 'cleaning'} for ${item.file.name}`}>Retry</button>}
         {item.status === 'unsupported' && <button className="button button-accent" type="button" disabled aria-label={`Deep Clean ${item.file.name}`}>{icon.sparkle} Deep Clean</button>}
         {item.status === 'verified' && item.result && <a className="button button-accent" href={item.result.downloadUrl} download={item.result.filename} aria-label={`Download cleaned image ${item.result.filename}`}>{icon.download} Download {formatName(item.format)}</a>}
@@ -167,16 +179,24 @@ export function App() {
         }
         const dimensions = await readJpegDimensions(item.file)
         if (!liveIdsRef.current.has(item.id)) return
+        const knownStrategy = selectPngCleaningStrategy(report)
         const previewUrl = URL.createObjectURL(item.file)
-        updateItem(item.id, { format, report, ...dimensions, previewUrl, knownStrategy: selectPngCleaningStrategy(report), status: 'ready' })
-        setAnnouncement(`${item.file.name} is ready. PNG with ${report.metadataBlocks.filter((block) => block.removable).length} removable metadata blocks.`)
+        const status = knownStrategy === 'already-clean' ? 'already-clean' : 'ready'
+        updateItem(item.id, { format, report, ...dimensions, previewUrl, knownStrategy, status })
+        setAnnouncement(status === 'already-clean'
+          ? `${item.file.name} is already clean. No file number was used.`
+          : `${item.file.name} is ready. PNG with ${report.metadataBlocks.filter((block) => block.removable).length} removable metadata blocks.`)
       } else {
         const report = inspectJpeg(buffer)
         const dimensions = await readJpegDimensions(item.file)
         if (!liveIdsRef.current.has(item.id)) return
+        const knownStrategy = selectJpegCleaningStrategy(report)
         const previewUrl = URL.createObjectURL(item.file)
-        updateItem(item.id, { format, report, ...dimensions, previewUrl, knownStrategy: 'canvas-rebuild', status: 'ready' })
-        setAnnouncement(`${item.file.name} is ready. JPEG with ${report.metadataBlocks.length} removable metadata blocks.`)
+        const status = knownStrategy === 'already-clean' ? 'already-clean' : 'ready'
+        updateItem(item.id, { format, report, ...dimensions, previewUrl, knownStrategy, status })
+        setAnnouncement(status === 'already-clean'
+          ? `${item.file.name} is already clean. No file number was used.`
+          : `${item.file.name} is ready. JPEG with ${report.metadataBlocks.length} removable metadata blocks.`)
       }
     } catch (caught) {
       if (!liveIdsRef.current.has(item.id)) return
@@ -203,11 +223,12 @@ export function App() {
   }
 
   const processItem = async (item: QueueItem): Promise<boolean> => {
-    if (!item.format || !item.report || !liveIdsRef.current.has(item.id)) return false
-    updateItem(item.id, { status: 'cleaning', error: undefined, failureStage: undefined }); setProcessingId(item.id); setAnnouncement('Deep cleaning and verifying the image locally.')
+    if (!item.format || !item.report || !liveIdsRef.current.has(item.id) || item.knownStrategy === 'already-clean') return false
+    updateItem(item.id, { status: 'cleaning', error: undefined, failureStage: undefined }); setProcessingId(item.id)
+    setAnnouncement(item.knownStrategy === 'canvas-rebuild' ? 'Deep cleaning and verifying the image locally.' : 'Removing metadata and verifying the image locally.')
     try {
       const cleaned = item.format === 'png' ? await cleanPng(item.file) : await cleanJpeg(item.file)
-      const strategy: PngCleaningStrategy = item.format === 'png' && 'strategy' in cleaned ? cleaned.strategy as PngCleaningStrategy : 'canvas-rebuild'
+      const strategy: PngCleaningStrategy = cleaned.strategy
       const resultUrl = URL.createObjectURL(cleaned.blob)
       const filename = counter.assignVerified(item.format === 'png' ? 'png' : 'jpg')
       const removedBlocks = removableCountFor(item)
@@ -244,6 +265,42 @@ export function App() {
       if (stopRequestedRef.current) { setAnnouncement(`Batch stopped after ${index + 1} of ${ready.length}. Remaining files are still ready.`); break }
     }
     processingRef.current = false; setBatchProgress((progress) => ({ ...progress, active: false, stopping: false }))
+  }
+
+  const downloadAlreadyClean = async (id: string) => {
+    if (processingRef.current || zipGenerating || itemsRef.current.some((item) => item.status === 'inspecting')) return
+    const item = itemsRef.current.find((candidate) => candidate.id === id)
+    if (!item || item.status !== 'already-clean' || !item.format || item.result) return
+    processingRef.current = true
+    setProcessingId(item.id)
+    try {
+      const source = new Uint8Array(await item.file.arrayBuffer())
+      if (item.format === 'png') verifyCleanedPng(source)
+      else verifyCleanedJpeg(source)
+      const output = new ArrayBuffer(source.byteLength)
+      new Uint8Array(output).set(source)
+      const blob = new Blob([output], { type: item.format === 'png' ? 'image/png' : 'image/jpeg' })
+      const filename = counter.assignVerified(item.format === 'png' ? 'png' : 'jpg')
+      const downloadUrl = URL.createObjectURL(blob)
+      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      updateItem(item.id, { status: 'verified', previewUrl: undefined, result: { blob, bytes: new Uint8Array(output), filename, downloadUrl, strategy: 'already-clean', removedBlocks: 0 } })
+      setNextNumber(counter.peek())
+      const anchor = document.createElement('a')
+      anchor.href = downloadUrl
+      anchor.download = filename
+      anchor.style.display = 'none'
+      document.body.append(anchor)
+      anchor.click()
+      anchor.remove()
+      setAnnouncement(`${item.file.name} is verified clean and ready as ${filename}.`)
+    } catch (caught) {
+      const error = caught instanceof Error ? caught.message : 'This image could not be saved safely.'
+      updateItem(item.id, { status: 'failed', error, failureStage: 'cleaning' })
+      setAnnouncement(`${item.file.name} could not be saved. No file number was used.`)
+    } finally {
+      setProcessingId(null)
+      processingRef.current = false
+    }
   }
 
   const stopBatch = () => { stopRequestedRef.current = true; setBatchProgress((progress) => ({ ...progress, stopping: true })); setAnnouncement('Stop requested. The current image will finish safely; remaining images will stay ready.') }
@@ -300,7 +357,7 @@ export function App() {
         <div className="queue-toolbar"><div><p className="eyebrow">LOCAL QUEUE</p><h2 id="queue-heading">{summary.total} {summary.total === 1 ? 'image' : 'images'}</h2></div><div className="toolbar-actions">{batchProgress.active ? <button className="button button-light" type="button" disabled={batchProgress.stopping} onClick={stopBatch}>{batchProgress.stopping ? 'Stopping after current…' : 'Stop after current'}</button> : <button className="button button-dark" type="button" disabled={actionsDisabled || summary.ready === 0} onClick={cleanAll}>Clean all ready ({summary.ready})</button>}<button className="text-button" type="button" disabled={actionsDisabled} onClick={clearAll}>Clear all</button></div></div>
         {batchProgress.active && <div className="batch-progress"><div><strong>Cleaning {batchProgress.current} of {batchProgress.total}</strong><span>One image at a time</span></div><progress aria-label="Batch cleaning progress" value={batchProgress.completed} max={batchProgress.total}>{batchProgress.completed} of {batchProgress.total}</progress></div>}
         <div className="summary-grid" aria-label="Queue summary"><div><span>Total</span><strong>{summary.total}</strong></div><div><span>Ready</span><strong>{summary.ready}</strong></div><div><span>Verified</span><strong>{summary.verified}</strong></div><div><span>Failed</span><strong>{summary.failed}</strong></div><div><span>Blocks removed</span><strong>{summary.removedBlocks}</strong></div><div><span>Original</span><strong>{formatBytes(summary.originalBytes)}</strong></div><div><span>Cleaned</span><strong>{formatBytes(summary.cleanedBytes)}</strong></div></div>
-        <div className="queue-list">{items.map((item) => <QueueItemCard key={item.id} item={item} actionsDisabled={actionsDisabled} onClean={() => cleanOne(item.id)} onRetry={() => retryItem(item.id)} onRemove={() => removeItem(item.id)} onCleanAnother={items.length === 1 && item.status === 'verified' ? clearAll : undefined} />)}</div>
+        <div className="queue-list">{items.map((item) => <QueueItemCard key={item.id} item={item} actionsDisabled={actionsDisabled} onClean={() => cleanOne(item.id)} onDownloadClean={() => downloadAlreadyClean(item.id)} onRetry={() => retryItem(item.id)} onRemove={() => removeItem(item.id)} onCleanAnother={items.length === 1 && item.status === 'verified' ? clearAll : undefined} />)}</div>
         {verifiedItems.length >= 2 && <div className="zip-panel"><div><strong>Download verified files together</strong><span>Stored without recompression in a private, locally generated ZIP.</span></div><button className="button button-accent" type="button" disabled={actionsDisabled} onClick={downloadZip}>{icon.download} {zipGenerating ? 'Preparing ZIP…' : `Download all as ZIP (${verifiedItems.length})`}</button></div>}
       </section>}
       <div className="live-region" aria-live="polite" aria-atomic="true">{announcement}</div>

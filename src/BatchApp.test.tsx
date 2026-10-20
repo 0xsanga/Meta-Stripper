@@ -33,7 +33,7 @@ const pngFile = (name: string, extraChunks: number[][] = []): File => {
 
 const cleanedJpeg = () => {
   const bytes = makeJpeg()
-  return { blob: browserBlob(Uint8Array.from(bytes), 'image/jpeg'), bytes, width: 40, height: 30, remainingMetadataBlocks: 0 }
+  return { blob: browserBlob(Uint8Array.from(bytes), 'image/jpeg'), bytes, width: 40, height: 30, remainingMetadataBlocks: 0, strategy: 'direct-strip' as const }
 }
 
 const cleanedPng = () => {
@@ -206,6 +206,27 @@ describe('Meta Stripper batch workflow', () => {
     expect(vi.mocked(URL.revokeObjectURL).mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
       'blob:local-1', 'blob:local-2',
     ]))
+  })
+
+  it('does not number an already-clean image while cleaning the rest of the queue', async () => {
+    const user = userEvent.setup()
+    const plainBytes = makeJpeg()
+    const plain = new File([Uint8Array.from(plainBytes)], 'plain.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(plain, 'arrayBuffer', { value: async () => plainBytes.slice().buffer })
+    render(<App />)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [plain, jpegFile('note.jpg')])
+
+    expect(await screen.findByRole('heading', { name: 'No removable metadata' })).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Clean all ready (1)' }))
+    expect(await screen.findByText('MS1.jpg')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Download plain.jpg without rebuilding' })).toBeEnabled()
+    expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('2')
+    expect(vi.mocked(cleanJpeg)).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: 'Download plain.jpg without rebuilding' }))
+    expect(await screen.findByText('MS2.jpg')).toBeInTheDocument()
+    expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('3')
+    expect(vi.mocked(cleanJpeg)).toHaveBeenCalledTimes(1)
   })
 
   it('downloads a deterministic local ZIP without consuming another sequence number', async () => {

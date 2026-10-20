@@ -217,6 +217,18 @@ export const walkJpegSegments = (input: ArrayBuffer | Uint8Array): Segment[] => 
   return segments
 }
 
+const FRAME_MARKERS = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf])
+
+export const readJpegFrameSize = (input: ArrayBuffer | Uint8Array): { width: number; height: number } | undefined => {
+  for (const segment of walkJpegSegments(input)) {
+    if (!FRAME_MARKERS.has(segment.marker) || segment.payload.length < 5) continue
+    const height = (segment.payload[1]! << 8) | segment.payload[2]!
+    const width = (segment.payload[3]! << 8) | segment.payload[4]!
+    if (width > 0 && height > 0) return { width, height }
+  }
+  return undefined
+}
+
 export const inspectJpeg = (input: ArrayBuffer | Uint8Array): JpegInspectionReport => {
   const segments = walkJpegSegments(input)
   const metadataBlocks: MetadataBlock[] = []

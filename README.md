@@ -12,8 +12,8 @@ Meta Stripper removes removable file-level metadata. It does not remove visible 
 
 - `.jpg` and `.jpeg` input with extension, signature, size, decode, and pixel-dimension validation
 - Bounds-checked JPEG marker inspection for EXIF, XMP, ICC, JUMBF/C2PA, Photoshop/IPTC, comments, and other non-structural APP blocks
-- Local decode and orientation normalisation followed by a high-quality JPEG rebuild
-- Post-encode metadata stripping and mandatory verification
+- Adaptive JPEG cleaning: safe metadata is removed without recompressing the scan, while orientation or ICC colour handling uses a high-quality canvas rebuild
+- Post-clean metadata verification, with already-clean files left unnumbered until download
 - `.png` input with full signature, chunk-order, length, CRC, dimension, critical-chunk, and end-marker validation
 - PNG inspection for eXIf, text, XMP, ICC, timestamps, pixel density, C2PA, signatures, and unknown ancillary chunks
 - Adaptive static PNG cleaning: safe metadata-only files are stripped without decoding or recompressing IDAT, while orientation- or colour-sensitive files use a transparent-canvas rebuild

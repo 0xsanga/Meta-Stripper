@@ -27,5 +27,7 @@ export const selectPngCleaningStrategy = (report: PngInspectionReport): PngClean
       'ANIMATED_PNG_UNSUPPORTED',
     )
   }
-  return report.metadataBlocks.some(requiresVisualNormalisation) ? 'canvas-rebuild' : 'direct-strip'
+  if (report.metadataBlocks.some(requiresVisualNormalisation)) return 'canvas-rebuild'
+  const removable = report.metadataBlocks.some((block) => block.removable)
+  return removable ? 'direct-strip' : 'already-clean'
 }

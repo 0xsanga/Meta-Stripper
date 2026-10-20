@@ -37,6 +37,14 @@ describe('static PNG cleaning', () => {
 
   afterEach(() => vi.restoreAllMocks())
 
+  it('keeps a PNG with no removable metadata without decoding it', async () => {
+    const source = makePng([], { width: 48, height: 32, colorType: 6 })
+    const result = await cleanPng(blobLike(source))
+    expect(result.strategy).toBe('already-clean')
+    expect(result.bytes).toEqual(source)
+    expect(decodeJpeg).not.toHaveBeenCalled()
+  })
+
   it('directly removes a 21.3 KB caBX block without decoding or recompressing IDAT', async () => {
     const caBxPayload = new Array<number>(21_300).fill(0x41)
     const source = makePng([pngChunk('caBX', caBxPayload)], { width: 48, height: 32, colorType: 6 })

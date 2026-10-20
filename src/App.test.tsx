@@ -5,7 +5,7 @@ import { App } from './App'
 import { PRODUCT } from './config/product'
 import { cleanJpeg, readJpegDimensions } from './lib/jpeg/cleaner'
 import { cleanPng } from './lib/png/cleaner'
-import { makeJpeg, segment, asciiBytes } from './test/jpegFixtures'
+import { makeJpeg, segment, asciiBytes, exifPayload } from './test/jpegFixtures'
 import { makePng, pngAscii, pngChunk } from './test/pngFixtures'
 
 vi.mock('./lib/jpeg/cleaner', () => ({
@@ -44,6 +44,7 @@ describe('Meta Stripper interface', () => {
       width: 1600,
       height: 1200,
       remainingMetadataBlocks: 0,
+      strategy: 'direct-strip',
     })
     const pngBytes = makePng([], { width: 320, height: 240, colorType: 6 })
     vi.mocked(cleanPng).mockResolvedValue({
@@ -101,8 +102,8 @@ describe('Meta Stripper interface', () => {
     render(<App />)
     await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile().file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
-    expect(screen.getByRole('heading', { name: /rebuilding your image/i })).toBeInTheDocument()
-    expect(screen.getByText('Deep cleaning and verifying the image locally.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /removing metadata/i })).toBeInTheDocument()
+    expect(screen.getByText('Removing metadata and verifying the image locally.')).toBeInTheDocument()
   })
 
   it('shows a controlled error without consuming a number', async () => {
@@ -158,7 +159,7 @@ describe('Meta Stripper interface', () => {
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByText('MS1.jpg')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /clean another image/i }))
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile().file)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('artwork.png', [pngChunk('tEXt', pngAscii('Author\0Ada'))]).file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByText('MS2.png')).toBeInTheDocument()
     expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('3')
@@ -180,7 +181,7 @@ describe('Meta Stripper interface', () => {
     vi.mocked(cleanPng).mockRejectedValueOnce(new Error('Direct strip verification failed safely.'))
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile().file)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('noted.png', [pngChunk('tEXt', pngAscii('Author\0Ada'))]).file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/direct strip verification failed safely/i)
     expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('1')
@@ -213,5 +214,42 @@ describe('Meta Stripper interface', () => {
     await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('profiled.png', [profile]).file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByText(/pixels were rebuilt to safely normalise orientation or colour interpretation/i)).toBeInTheDocument()
+  })
+
+  it('shows a direct JPEG strip when orientation and colour do not need a rebuild', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile().file)
+    expect(await screen.findByText(/direct metadata strip/i)).toBeInTheDocument()
+  })
+
+  it('plans a canvas rebuild when JPEG orientation must be applied', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const bytes = makeJpeg(segment(0xe1, exifPayload(6)))
+    const file = new File([Uint8Array.from(bytes)], 'turned.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), file)
+    expect(await screen.findByText(/canvas rebuild/i)).toBeInTheDocument()
+  })
+
+  it('downloads an already-clean JPEG without rebuilding or numbering it during inspection', async () => {
+    const user = userEvent.setup()
+    const bytes = makeJpeg()
+    const file = new File([Uint8Array.from(bytes)], 'plain.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
+    render(<App />)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), file)
+
+    expect(await screen.findByRole('heading', { name: 'No removable metadata' })).toBeInTheDocument()
+    expect(screen.getByText(/No file number was used/i)).toBeInTheDocument()
+    expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('1')
+    expect(vi.mocked(cleanJpeg)).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /download plain.jpg without rebuilding/i }))
+    expect(await screen.findByRole('link', { name: /download cleaned image MS1.jpg/i })).toHaveAttribute('download', 'MS1.jpg')
+    expect(screen.getByText(/original image bytes were kept/i)).toBeInTheDocument()
+    expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('2')
+    expect(vi.mocked(cleanJpeg)).not.toHaveBeenCalled()
   })
 })

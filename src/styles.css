@@ -170,7 +170,7 @@ main { width: min(1000px, calc(100% - 40px)); margin: 0 auto; }
 .queue-filename { margin: 0 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; }
 .queue-heading div > span { color: var(--muted); font-size: .72rem; }
 .status-pill { flex: none; padding: 6px 9px; border-radius: 999px; background: #e6e8e5; color: #505c55; font-size: .62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
-.status-pill-ready { background: #e2eddb; color: #365728; }
+.status-pill-ready, .status-pill-already-clean { background: #e2eddb; color: #365728; }
 .status-pill-cleaning, .status-pill-inspecting { background: #e1eaf0; color: #33566d; }
 .status-pill-verified { background: #ddecbd; color: #36570d; }
 .status-pill-failed, .status-pill-unsupported { background: #f5ddd8; color: #7e382f; }
