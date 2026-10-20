@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { cleanJpeg } from './cleaner'
+import { cleanJpeg, requireSafeJpegFrame } from './cleaner'
 import { stripJpegMetadata } from './stripper'
-import { asciiBytes, makeJpeg, segment } from '../../test/jpegFixtures'
+import { asciiBytes, exifPayload, makeJpeg, segment } from '../../test/jpegFixtures'
 
 const blobLike = (bytes: Uint8Array): Blob => ({
   size: bytes.byteLength,
@@ -27,6 +27,32 @@ describe('adaptive JPEG cleaning', () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+
+  it('rejects an oversized oriented JPEG before decoding it', async () => {
+    const decode = vi.fn(async () => { throw new Error('JPEG decode should not run') })
+    vi.stubGlobal('createImageBitmap', decode)
+    try {
+      const source = makeJpeg(segment(0xe1, exifPayload(6)))
+      for (let index = 0; index < source.length - 8; index += 1) {
+        if (source[index] === 0xff && source[index + 1] === 0xc0) {
+          source[index + 5] = 0x3a
+          source[index + 6] = 0x98
+          source[index + 7] = 0x3a
+          source[index + 8] = 0x98
+          break
+        }
+      }
+      await expect(cleanJpeg(blobLike(source))).rejects.toThrow(/too large to process safely/i)
+      expect(decode).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('rejects a JPEG that does not declare its dimensions', () => {
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xda, 0x00, 0x08, 1, 1, 0, 0, 0x3f, 0, 0x11, 0xff, 0xd9])
+    expect(() => requireSafeJpegFrame(bytes)).toThrow(/pixel dimensions/i)
   })
 
   it('returns the original bytes when nothing removable is present', async () => {

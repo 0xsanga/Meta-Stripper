@@ -8,7 +8,10 @@ import { cleanPng } from './lib/png/cleaner'
 import { asciiBytes, makeJpeg, segment } from './test/jpegFixtures'
 import { makePng, pngAscii, pngChunk } from './test/pngFixtures'
 
-vi.mock('./lib/jpeg/cleaner', () => ({ readJpegDimensions: vi.fn(), cleanJpeg: vi.fn() }))
+vi.mock('./lib/jpeg/cleaner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lib/jpeg/cleaner')>()
+  return { ...actual, readJpegDimensions: vi.fn(), cleanJpeg: vi.fn() }
+})
 vi.mock('./lib/png/cleaner', () => ({ cleanPng: vi.fn() }))
 
 const browserBlob = (bytes: Uint8Array, type: string): Blob => ({

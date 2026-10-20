@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { BATCH_LIMITS, PRODUCT } from './config/product'
+import { assertDecodedBudget, reservedDecodedBytes } from './lib/batch/memory'
 import { assertBatchAdditionAllowed, createQueueItems, summarizeQueue } from './lib/batch/queue'
 import type { QueueItem } from './lib/batch/types'
 import { createVerifiedZip } from './lib/batch/zip'
 import { validateImageFile, type SupportedImageFormat } from './lib/fileValidation'
 import { formatBytes } from './lib/format'
-import { cleanJpeg, readJpegDimensions } from './lib/jpeg/cleaner'
+import { cleanJpeg, readJpegDimensions, requireSafeJpegFrame } from './lib/jpeg/cleaner'
 import { inspectJpeg } from './lib/jpeg/parser'
 import { selectJpegCleaningStrategy } from './lib/jpeg/strategy'
 import { verifyCleanedJpeg } from './lib/jpeg/stripper'
@@ -89,9 +90,10 @@ function UploadPanel({ onFiles, compact = false, disabled = false }: { onFiles: 
   const receiveFiles = (files: FileList) => onFiles(Array.from(files))
   const drop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault(); setDragging(false)
-    if (event.dataTransfer.files.length) receiveFiles(event.dataTransfer.files)
+    if (disabled || !event.dataTransfer.files.length) return
+    receiveFiles(event.dataTransfer.files)
   }
-  return <div className={`${compact ? 'add-panel' : 'drop-zone'} ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={drop}>
+  return <div className={`${compact ? 'add-panel' : 'drop-zone'} ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); if (!disabled) setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={drop}>
     <input ref={inputRef} id="file-picker" className="sr-only" type="file" multiple accept=".jpg,.jpeg,.png,image/jpeg,image/png" aria-label="Choose a JPEG or PNG image" disabled={disabled} onChange={(event) => { if (event.target.files?.length) receiveFiles(event.target.files); event.target.value = '' }} />
     {compact ? <><div><strong>Add images</strong><span>Drop more here or choose files</span></div><button className="button button-light" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Add images</button></> : <><div className="upload-icon">{icon.upload}</div><h2>Drop an image here</h2><p>Choose one image or select several to form a local queue.</p><button className="button button-dark" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Choose images</button><p className="file-note">JPG, JPEG, or static PNG · Up to {BATCH_LIMITS.maxQueuedFiles} files / {BATCH_LIMITS.maxCombinedSourceBytes / 1024 / 1024} MB total · Nothing is uploaded</p></>}
   </div>
@@ -177,6 +179,7 @@ export function App() {
           setAnnouncement(`${item.file.name} is an animated PNG and is unsupported.`)
           return
         }
+        assertDecodedBudget(reservedDecodedBytes(itemsRef.current, item.id), report.width, report.height)
         const dimensions = await readJpegDimensions(item.file)
         if (!liveIdsRef.current.has(item.id)) return
         const knownStrategy = selectPngCleaningStrategy(report)
@@ -188,6 +191,8 @@ export function App() {
           : `${item.file.name} is ready. PNG with ${report.metadataBlocks.filter((block) => block.removable).length} removable metadata blocks.`)
       } else {
         const report = inspectJpeg(buffer)
+        const frame = requireSafeJpegFrame(buffer)
+        assertDecodedBudget(reservedDecodedBytes(itemsRef.current, item.id), frame.width, frame.height)
         const dimensions = await readJpegDimensions(item.file)
         if (!liveIdsRef.current.has(item.id)) return
         const knownStrategy = selectJpegCleaningStrategy(report)
@@ -209,7 +214,7 @@ export function App() {
   }
 
   const addFiles = async (files: File[]) => {
-    if (!files.length || processingRef.current || zipGenerating) return
+    if (!files.length || processingRef.current || zipGenerating || itemsRef.current.some((item) => item.status === 'inspecting')) return
     try { assertBatchAdditionAllowed(itemsRef.current, files) } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Those files could not be added.'
       setQueueError(message); setAnnouncement(message); return
@@ -339,7 +344,9 @@ export function App() {
 
   const resetCounter = () => {
     if (processingRef.current) return
-    if (window.confirm('Reset the file counter? The next successfully cleaned file will use MS1 with its image format extension. Previously downloaded files will not be changed.')) { counter.reset(); setNextNumber(1); setAnnouncement('File counter reset successfully.') }
+    const queuedNames = itemsRef.current.flatMap((item) => item.result ? [item.result.filename] : [])
+    const collision = queuedNames.length ? ` This queue still has ${queuedNames.join(', ')}, so a later file can reuse one of those names.` : ''
+    if (window.confirm(`Reset the file counter? The next successfully cleaned file will use MS1 with its image format extension.${collision} Previously downloaded files will not be changed.`)) { counter.reset(); setNextNumber(1); setAnnouncement('File counter reset successfully.') }
   }
 
   const summary = summarizeQueue(items)

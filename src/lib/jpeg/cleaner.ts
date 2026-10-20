@@ -39,6 +39,13 @@ export const decodeJpeg = async (blob: Blob): Promise<DecodedImage> => {
   }
 }
 
+export const requireSafeJpegFrame = (input: ArrayBuffer | Uint8Array): { width: number; height: number } => {
+  const frame = readJpegFrameSize(input)
+  if (!frame) throw new Error('This JPEG does not declare its pixel dimensions.')
+  assertSafeDimensions(frame.width, frame.height)
+  return frame
+}
+
 export const assertSafeDimensions = (width: number, height: number): void => {
   if (
     !Number.isSafeInteger(width) ||
@@ -89,7 +96,8 @@ const cleanedJpeg = (bytes: Uint8Array, width: number, height: number, strategy:
   }
 }
 
-const rebuildJpeg = async (blob: Blob): Promise<CleanedJpeg> => {
+const rebuildJpeg = async (blob: Blob, sourceBytes: Uint8Array): Promise<CleanedJpeg> => {
+  requireSafeJpegFrame(sourceBytes)
   const decoded = await decodeJpeg(blob)
   try {
     assertSafeDimensions(decoded.width, decoded.height)
@@ -114,7 +122,7 @@ const rebuildJpeg = async (blob: Blob): Promise<CleanedJpeg> => {
 export const cleanJpeg = async (blob: Blob): Promise<CleanedJpeg> => {
   const sourceBytes = new Uint8Array(await blob.arrayBuffer())
   const strategy = selectJpegCleaningStrategy(inspectJpeg(sourceBytes))
-  if (strategy === 'canvas-rebuild') return rebuildJpeg(blob)
+  if (strategy === 'canvas-rebuild') return rebuildJpeg(blob, sourceBytes)
 
   const stripped = strategy === 'already-clean' ? sourceBytes : stripJpegMetadata(sourceBytes)
   verifyCleanedJpeg(stripped)

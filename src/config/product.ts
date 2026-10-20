@@ -15,5 +15,6 @@ export const LIMITS = {
 export const BATCH_LIMITS = {
   maxQueuedFiles: 20,
   maxCombinedSourceBytes: 200 * 1024 * 1024,
+  maxDecodedBytes: 512 * 1024 * 1024,
   cleaningConcurrency: 1,
 } as const

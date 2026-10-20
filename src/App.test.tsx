@@ -1,19 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from './App'
 import { PRODUCT } from './config/product'
-import { cleanJpeg, readJpegDimensions } from './lib/jpeg/cleaner'
+import { cleanJpeg, readJpegDimensions, requireSafeJpegFrame } from './lib/jpeg/cleaner'
 import { cleanPng } from './lib/png/cleaner'
 import { makeJpeg, segment, asciiBytes, exifPayload } from './test/jpegFixtures'
 import { makePng, pngAscii, pngChunk } from './test/pngFixtures'
 
-vi.mock('./lib/jpeg/cleaner', () => ({
-  readJpegDimensions: vi.fn(),
-  cleanJpeg: vi.fn(),
-}))
+vi.mock('./lib/jpeg/cleaner', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./lib/jpeg/cleaner')>()
+  return { ...actual, readJpegDimensions: vi.fn(), cleanJpeg: vi.fn() }
+})
 
 vi.mock('./lib/png/cleaner', () => ({ cleanPng: vi.fn() }))
+
+const withFrame = (width: number, height: number, name: string) => {
+  const bytes = makeJpeg(segment(0xfe, asciiBytes(name)))
+  for (let index = 0; index < bytes.length - 8; index += 1) {
+    if (bytes[index] === 0xff && bytes[index + 1] === 0xc0) {
+      bytes[index + 5] = (height >>> 8) & 0xff
+      bytes[index + 6] = height & 0xff
+      bytes[index + 7] = (width >>> 8) & 0xff
+      bytes[index + 8] = width & 0xff
+      break
+    }
+  }
+  const file = new File([Uint8Array.from(bytes)], name, { type: 'image/jpeg' })
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
+  return file
+}
 
 const makeFile = (name = 'holiday.jpg') => {
   const bytes = makeJpeg(segment(0xfe, asciiBytes('private note')))
@@ -214,6 +230,56 @@ describe('Meta Stripper interface', () => {
     await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('profiled.png', [profile]).file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByText(/pixels were rebuilt to safely normalise orientation or colour interpretation/i)).toBeInTheDocument()
+  })
+
+  it('rejects an oversized JPEG before decoding it', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), withFrame(15_000, 15_000, 'huge.jpg'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/too large to process safely/i)
+    expect(vi.mocked(readJpegDimensions)).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('1')
+  })
+
+  it('stops before decoding a batch that would exceed decoded memory', async () => {
+    vi.mocked(readJpegDimensions).mockImplementation(async (blob) => requireSafeJpegFrame(new Uint8Array(await blob.arrayBuffer())))
+    const user = userEvent.setup()
+    render(<App />)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [
+      withFrame(6000, 6000, 'large-1.jpg'),
+      withFrame(6000, 6000, 'large-2.jpg'),
+      withFrame(6000, 6000, 'large-3.jpg'),
+      withFrame(6000, 6000, 'large-4.jpg'),
+    ])
+    expect(await screen.findByRole('alert')).toHaveTextContent(/512\.0 MB safety limit/i)
+    expect(screen.getAllByRole('button', { name: /Deep Clean large-/ })).toHaveLength(3)
+    expect(screen.getByRole('button', { name: /Retry inspection for large-4.jpg/ })).toBeEnabled()
+    expect(vi.mocked(readJpegDimensions)).toHaveBeenCalledTimes(3)
+  })
+
+  it('ignores a drop while inspection is still running', async () => {
+    vi.mocked(readJpegDimensions).mockImplementationOnce(() => new Promise(() => undefined))
+    const user = userEvent.setup()
+    render(<App />)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile('first.jpg').file)
+    expect(await screen.findByRole('heading', { name: /inspecting your image/i })).toBeInTheDocument()
+    const panel = document.querySelector('.add-panel')
+    fireEvent.drop(panel!, { dataTransfer: { files: [makeFile('second.jpg').file] } })
+    expect(screen.queryByText('second.jpg')).not.toBeInTheDocument()
+  })
+
+  it('warns when resetting would reuse a name still in the queue', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const user = userEvent.setup()
+    render(<App />)
+    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile().file)
+    await user.click(await screen.findByRole('button', { name: /deep clean/i }))
+    await screen.findByText('MS1.jpg')
+    await user.click(screen.getByText('Numbering settings'))
+    await user.click(screen.getByRole('button', { name: /reset file counter/i }))
+    expect(confirm.mock.calls.at(-1)?.[0]).toMatch(/MS1\.jpg/)
+    expect(confirm.mock.calls.at(-1)?.[0]).toMatch(/reuse one of those names/i)
+    expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('2')
   })
 
   it('shows a direct JPEG strip when orientation and colour do not need a rebuild', async () => {

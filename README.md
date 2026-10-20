@@ -21,7 +21,7 @@ Meta Stripper removes removable file-level metadata. It does not remove visible 
 - Animated PNG detection and safe cleaning refusal, preventing accidental animation flattening
 - Post-encode metadata stripping and mandatory verification for both formats
 - One persistent global sequence across formats (`MS1.jpg`, `MS2.png`, …) with an in-memory fallback
-- A local queue for one or several selections, capped centrally at 20 files and 200 MB of combined source data
+- A local queue for one or several selections, capped centrally at 20 files, 200 MB of source data, and 512 MB of estimated decoded pixels
 - Per-file inspection, status, retry, removal, cleaning, verification, and individual download controls
 - Sequential **Clean all ready** processing with stop-after-current behavior and completion-order MS numbering
 - Store-mode ZIP download for two or more verified results, containing only exact assigned MS filenames
