@@ -67,3 +67,11 @@ Two or more verified results may be downloaded together as `Meta-Stripper-MS<low
 3. Local queue, sequential batch cleaning, accessible progress and recovery, deterministic in-memory ZIP export, and resource cleanup. Complete.
 
 JPEG/JPG and static PNG remain the complete format boundary. No additional format support, abstraction, or dependency belongs in the project unless explicitly instructed.
+
+## Offline shell
+
+The production build emits a hand-written service worker. It precaches the built document, hashed JavaScript and CSS, web manifest, and install icons, and no other URL. Fetch handling answers only those shell requests from Cache Storage. It never calls `cache.put`, so an image, report, source name, or other response cannot enter the cache later. The worker is registered only in the production build. Desktop and Android browsers that support installation can install this shell. iOS is outside that install path. Cleaning still requires a file the user chooses on the device; the shell does not fetch images.
+
+## Production headers
+
+Hosting sends a strict Content Security Policy (`default-src 'none'`, same-origin scripts and styles, `blob:` images for local previews), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, a permissions policy that disables camera, microphone, geolocation, payment, and USB, and HSTS without `includeSubDomains`. A render error is caught by a React error boundary that tells the user to reload and does not transmit the error.

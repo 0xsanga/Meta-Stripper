@@ -1,0 +1,14 @@
+{
+  "name": "Meta Stripper",
+  "short_name": "Meta Stripper",
+  "description": "Private, browser-only JPEG and static PNG metadata cleaner.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f3ef",
+  "theme_color": "#f4f3ef",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

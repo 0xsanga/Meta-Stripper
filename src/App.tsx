@@ -18,7 +18,7 @@ import { verifyCleanedPng } from './lib/png/stripper'
 import type { PngCleaningStrategy, PngInspectionReport, PngMetadataBlock } from './lib/png/types'
 import { createSequenceCounter } from './lib/sequenceCounter'
 
-const PAGE_TITLE = `${PRODUCT.name} — Private image metadata cleaner`
+const PAGE_TITLE = `${PRODUCT.name}: Private image metadata cleaner`
 if (typeof document !== 'undefined') document.title = PAGE_TITLE
 
 const jpegCategoryLabel: Record<MetadataBlock['category'], string> = {
@@ -73,15 +73,12 @@ const resultExplanation = (item: QueueItem): string => {
 const kindLabel: Record<MetadataBlock['kind'], string> = { privacy: 'Privacy', provenance: 'Provenance', technical: 'Technical' }
 
 const icon = {
-  shield: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 7.9 7.5 9.5 4.4-1.6 7.5-4.9 7.5-9.5V6L12 3Z"/><path d="m9 12 2 2 4-4"/></svg>,
-  upload: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 15v4h14v-4"/></svg>,
-  sparkle: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c.6 5.8 4.2 9.4 10 10-5.8.6-9.4 4.2-10 10-.6-5.8-4.2-9.4-10-10 5.8-.6 9.4-4.2 10-10Z"/></svg>,
-  download: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 20h14"/></svg>,
-  trash: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 3h6l1 4H8l1-4Zm-2 4 1 14h8l1-14M10 11v6m4-6v6"/></svg>,
+  download: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4"/><path d="M5 20h14"/></svg>,
+  trash: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M9 7V5h6v2M8 7l1 13h6l1-13"/></svg>,
 }
 
 function Header() {
-  return <header className="site-header"><a href="#main" className="brand" aria-label={`${PRODUCT.name} home`}><span className="brand-mark">{icon.shield}</span><span>{PRODUCT.name}</span></a><span className="local-pill"><span aria-hidden="true" /> Local processing only</span></header>
+  return <header className="site-header"><a href="#main" className="brand" aria-label={`${PRODUCT.name} home`}><span className="brand-mark">MS</span><span>{PRODUCT.name}</span></a><span className="local-pill">On this device</span></header>
 }
 
 function UploadPanel({ onFiles, compact = false, disabled = false }: { onFiles: (files: File[]) => void; compact?: boolean; disabled?: boolean }) {
@@ -95,7 +92,7 @@ function UploadPanel({ onFiles, compact = false, disabled = false }: { onFiles: 
   }
   return <div className={`${compact ? 'add-panel' : 'drop-zone'} ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); if (!disabled) setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={drop}>
     <input ref={inputRef} id="file-picker" className="sr-only" type="file" multiple accept=".jpg,.jpeg,.png,image/jpeg,image/png" aria-label="Choose a JPEG or PNG image" disabled={disabled} onChange={(event) => { if (event.target.files?.length) receiveFiles(event.target.files); event.target.value = '' }} />
-    {compact ? <><div><strong>Add images</strong><span>Drop more here or choose files</span></div><button className="button button-light" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Add images</button></> : <><div className="upload-icon">{icon.upload}</div><h2>Drop an image here</h2><p>Choose one image or select several to form a local queue.</p><button className="button button-dark" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Choose images</button><p className="file-note">JPG, JPEG, or static PNG · Up to {BATCH_LIMITS.maxQueuedFiles} files / {BATCH_LIMITS.maxCombinedSourceBytes / 1024 / 1024} MB total · Nothing is uploaded</p></>}
+    {compact ? <><div><strong>Add images</strong><span>Drop more here, or choose files</span></div><button className="button button-light" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Add images</button></> : <><div className="drop-copy"><h2>Drop an image here</h2><p>One file, or several. They stay in this tab until you clear them.</p><p className="file-note">JPG, JPEG, or static PNG · Up to {BATCH_LIMITS.maxQueuedFiles} files / {BATCH_LIMITS.maxCombinedSourceBytes / 1024 / 1024} MB · Nothing is uploaded</p></div><button className="button button-dark" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Choose images</button></>}
   </div>
 }
 
@@ -108,7 +105,7 @@ function QueueItemCard({ item, actionsDisabled, onClean, onDownloadClean, onRetr
   const pngReport = item.format === 'png' ? item.report as PngInspectionReport | undefined : undefined
   const imageUrl = item.result?.downloadUrl ?? item.previewUrl
   return <article className={`queue-card status-${item.status}`} aria-labelledby={`item-title-${item.id}`}>
-    <div className="queue-thumb">{imageUrl ? <img src={imageUrl} alt={`Preview of ${item.file.name}`} /> : <span>{item.status === 'inspecting' ? <span className="spinner small" /> : icon.shield}</span>}</div>
+    <div className="queue-thumb">{imageUrl ? <img src={imageUrl} alt={`Preview of ${item.file.name}`} /> : <span>{item.status === 'inspecting' ? <span className="spinner small" /> : null}</span>}</div>
     <div className="queue-content">
       <div className="queue-heading"><div><p id={`item-title-${item.id}`} className="queue-filename" title={item.file.name}>{item.file.name}</p><span>{formatName(item.format)}{item.width && item.height ? ` · ${item.width.toLocaleString()} × ${item.height.toLocaleString()} px` : ''} · {formatBytes(item.file.size)}</span></div><span className={`status-pill status-pill-${item.status}`}>{statusLabel[item.status]}</span></div>
       {(item.status === 'ready' || item.status === 'already-clean' || item.status === 'verified') && <div className="queue-report">
@@ -125,10 +122,10 @@ function QueueItemCard({ item, actionsDisabled, onClean, onDownloadClean, onRetr
       {item.status === 'inspecting' && <div className="item-working"><h3>Inspecting your image…</h3><p>Inspecting safely on this device.</p></div>}
       {item.status === 'cleaning' && <div className="item-working"><h3>{item.knownStrategy === 'canvas-rebuild' ? 'Rebuilding your image…' : 'Removing metadata…'}</h3><p>Cleaning and verifying locally.</p></div>}
       <div className="queue-actions">
-        {item.status === 'ready' && <button className="button button-accent" type="button" disabled={actionsDisabled} onClick={onClean} aria-label={`Deep Clean ${item.file.name}`}>{icon.sparkle} Deep Clean</button>}
+        {item.status === 'ready' && <button className="button button-accent" type="button" disabled={actionsDisabled} onClick={onClean} aria-label={`Deep Clean ${item.file.name}`}>Deep Clean</button>}
         {item.status === 'already-clean' && <button className="button button-accent" type="button" disabled={actionsDisabled} onClick={onDownloadClean} aria-label={`Download ${item.file.name} without rebuilding`}>{icon.download} Download without rebuilding</button>}
         {item.status === 'failed' && <button className="button button-light" type="button" disabled={actionsDisabled} onClick={onRetry} aria-label={`Retry ${item.failureStage === 'inspection' ? 'inspection' : 'cleaning'} for ${item.file.name}`}>Retry</button>}
-        {item.status === 'unsupported' && <button className="button button-accent" type="button" disabled aria-label={`Deep Clean ${item.file.name}`}>{icon.sparkle} Deep Clean</button>}
+        {item.status === 'unsupported' && <button className="button button-accent" type="button" disabled aria-label={`Deep Clean ${item.file.name}`}>Deep Clean</button>}
         {item.status === 'verified' && item.result && <a className="button button-accent" href={item.result.downloadUrl} download={item.result.filename} aria-label={`Download cleaned image ${item.result.filename}`}>{icon.download} Download {formatName(item.format)}</a>}
         {item.status === 'verified' && onCleanAnother && <button className="button button-light" type="button" disabled={actionsDisabled} onClick={onCleanAnother}>Clean another image</button>}
         <button className="icon-button" type="button" data-remove-id={item.id} disabled={actionsDisabled || item.status === 'inspecting' || item.status === 'cleaning'} onClick={onRemove} aria-label={`Remove ${item.file.name} from queue`} title="Remove from queue">{icon.trash}</button>
@@ -138,7 +135,7 @@ function QueueItemCard({ item, actionsDisabled, onClean, onDownloadClean, onRetr
 }
 
 function PrivacyNote() {
-  return <section className="privacy-note" aria-labelledby="privacy-title"><span>{icon.shield}</span><div><h2 id="privacy-title">Your images stay on this device</h2><p>No upload, account, analytics, or remote processing. Sources, results, previews, and ZIPs exist only in this browser tab.</p></div></section>
+  return <section className="privacy-note" aria-labelledby="privacy-title"><div><h2 id="privacy-title">Your images stay on this device</h2><p>No upload, account, analytics, or remote processing. Sources, results, previews, and ZIPs exist only in this browser tab.</p></div></section>
 }
 
 export function App() {
@@ -357,19 +354,19 @@ export function App() {
   return <div className="app-shell">
     <Header />
     <main id="main">
-      <section className="hero" aria-labelledby="page-heading"><p className="eyebrow">PRIVATE BY DESIGN · JPEG + PNG</p><h1 id="page-heading">Leave the image.<br /><em>Lose the metadata.</em></h1><p>Clean one image or a small batch. Everything stays in this browser, including inspection, verification, and ZIP creation.</p></section>
+      <section className="hero" aria-labelledby="page-heading"><p className="eyebrow">JPEG + PNG</p><h1 id="page-heading">Leave the image.<br />Lose the metadata.</h1><p>Clean one image or a small batch. Inspection, verification, and ZIP creation stay in this browser.</p></section>
       {items.length === 0 ? <>{queueError && <p className="error-message" role="alert">{queueError}</p>}<UploadPanel onFiles={addFiles} /></> : <section className="queue-shell" aria-labelledby="queue-heading">
         <UploadPanel onFiles={addFiles} compact disabled={actionsDisabled} />
         {queueError && <div className="queue-error" role="alert">{queueError}</div>}
-        <div className="queue-toolbar"><div><p className="eyebrow">LOCAL QUEUE</p><h2 id="queue-heading">{summary.total} {summary.total === 1 ? 'image' : 'images'}</h2></div><div className="toolbar-actions">{batchProgress.active ? <button className="button button-light" type="button" disabled={batchProgress.stopping} onClick={stopBatch}>{batchProgress.stopping ? 'Stopping after current…' : 'Stop after current'}</button> : <button className="button button-dark" type="button" disabled={actionsDisabled || summary.ready === 0} onClick={cleanAll}>Clean all ready ({summary.ready})</button>}<button className="text-button" type="button" disabled={actionsDisabled} onClick={clearAll}>Clear all</button></div></div>
+        <div className="queue-toolbar"><div><h2 id="queue-heading">{summary.total} {summary.total === 1 ? 'image' : 'images'}</h2></div><div className="toolbar-actions">{batchProgress.active ? <button className="button button-light" type="button" disabled={batchProgress.stopping} onClick={stopBatch}>{batchProgress.stopping ? 'Stopping after current…' : 'Stop after current'}</button> : <button className="button button-dark" type="button" disabled={actionsDisabled || summary.ready === 0} onClick={cleanAll}>Clean all ready ({summary.ready})</button>}<button className="text-button" type="button" disabled={actionsDisabled} onClick={clearAll}>Clear all</button></div></div>
         {batchProgress.active && <div className="batch-progress"><div><strong>Cleaning {batchProgress.current} of {batchProgress.total}</strong><span>One image at a time</span></div><progress aria-label="Batch cleaning progress" value={batchProgress.completed} max={batchProgress.total}>{batchProgress.completed} of {batchProgress.total}</progress></div>}
-        <div className="summary-grid" aria-label="Queue summary"><div><span>Total</span><strong>{summary.total}</strong></div><div><span>Ready</span><strong>{summary.ready}</strong></div><div><span>Verified</span><strong>{summary.verified}</strong></div><div><span>Failed</span><strong>{summary.failed}</strong></div><div><span>Blocks removed</span><strong>{summary.removedBlocks}</strong></div><div><span>Original</span><strong>{formatBytes(summary.originalBytes)}</strong></div><div><span>Cleaned</span><strong>{formatBytes(summary.cleanedBytes)}</strong></div></div>
+        <div className="summary-grid" aria-label="Queue summary"><div className="summary-counts"><div><span>Total</span><strong>{summary.total}</strong></div><div><span>Ready</span><strong>{summary.ready}</strong></div><div><span>Verified</span><strong>{summary.verified}</strong></div><div><span>Failed</span><strong>{summary.failed}</strong></div></div><div className="summary-sizes"><div><span>Blocks removed</span><strong>{summary.removedBlocks}</strong></div><div><span>Original</span><strong>{formatBytes(summary.originalBytes)}</strong></div><div><span>Cleaned</span><strong>{formatBytes(summary.cleanedBytes)}</strong></div></div></div>
         <div className="queue-list">{items.map((item) => <QueueItemCard key={item.id} item={item} actionsDisabled={actionsDisabled} onClean={() => cleanOne(item.id)} onDownloadClean={() => downloadAlreadyClean(item.id)} onRetry={() => retryItem(item.id)} onRemove={() => removeItem(item.id)} onCleanAnother={items.length === 1 && item.status === 'verified' ? clearAll : undefined} />)}</div>
         {verifiedItems.length >= 2 && <div className="zip-panel"><div><strong>Download verified files together</strong><span>Stored without recompression in a private, locally generated ZIP.</span></div><button className="button button-accent" type="button" disabled={actionsDisabled} onClick={downloadZip}>{icon.download} {zipGenerating ? 'Preparing ZIP…' : `Download all as ZIP (${verifiedItems.length})`}</button></div>}
       </section>}
       <div className="live-region" aria-live="polite" aria-atomic="true">{announcement}</div>
       <PrivacyNote />
-      <section className="limitations" aria-labelledby="limits-title"><p className="eyebrow">WHAT VERIFIED CLEAN MEANS</p><h2 id="limits-title">File metadata, clearly separated from pixels.</h2><p>“Verified clean” covers removable file-level metadata detected by {PRODUCT.name}. It does not remove visible watermarks, cannot guarantee removal of pixel-level or imperceptible watermarks, and does not guarantee how external platforms classify an image.</p></section>
+      <section className="limitations" aria-labelledby="limits-title"><p className="eyebrow">Verified clean</p><h2 id="limits-title">File metadata, clearly separated from pixels.</h2><p>“Verified clean” covers removable file-level metadata detected by {PRODUCT.name}. It does not remove visible watermarks, cannot guarantee removal of pixel-level or imperceptible watermarks, and does not guarantee how external platforms classify an image.</p></section>
       <details className="settings"><summary>Numbering settings</summary><div><p>Next successful file: <strong>MS{nextNumber}</strong> plus its format extension</p><button className="text-button" type="button" disabled={actionsDisabled} onClick={resetCounter}>Reset file counter</button>{counter.warning && <p className="storage-warning" role="status">{counter.warning}</p>}</div></details>
     </main>
     <footer><span>{PRODUCT.name}</span><span>Browser-only · JPEG and static PNG</span></footer>

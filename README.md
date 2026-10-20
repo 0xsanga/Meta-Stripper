@@ -29,7 +29,15 @@ Meta Stripper removes removable file-level metadata. It does not remove visible 
 
 For direct PNG stripping, the signature and all retained chunks—including IDAT, PLTE, and tRNS—are copied byte-for-byte, so removing metadata cannot increase the file size. eXIf, iCCP, presentation-sensitive ancillary chunks, and uncertain unsafe-to-copy chunks conservatively use the canvas fallback. Browser PNG rendering in that fallback may normalise colour values, so canvas rebuilding is not described as byte-for-byte lossless.
 
-JPEG/JPG and static PNG are the permanent supported image formats. Animated PNG remains unsupported and is never flattened. No other image formats are planned, and no additional format architecture is included; changing that boundary requires an explicit instruction. PWA installation and deployment are outside the current project scope.
+JPEG/JPG and static PNG are the permanent supported image formats. Animated PNG remains unsupported and is never flattened. No other image formats are planned, and no additional format architecture is included; changing that boundary requires an explicit instruction.
+
+## Offline install
+
+A hand-written service worker, generated at build time, precaches only the built app shell: the document, its JavaScript and CSS, the manifest, and the install icons. Cache Storage never receives an image, a metadata report, or a source filename. Desktop Chrome and Android Chrome can install that shell. After the first online visit, the app opens and cleans files already on the device with no network. iOS is not part of this install path.
+
+## Hosting headers
+
+`vercel.json` sends a strict Content Security Policy, `nosniff`, `no-referrer`, frame denial, a locked-down permissions policy, and HSTS for the production host. The policy allows same-origin scripts and styles, plus `blob:` image previews for local results. It does not allow inline scripts, eval, remote fonts, analytics, or file transmission. Local preview omits HSTS and `upgrade-insecure-requests` so `http://127.0.0.1` still loads.
 
 ## Local batch and ZIP behavior
 
@@ -56,8 +64,9 @@ Quality checks:
 npm test
 npm run lint
 npm run build
+npm run test:e2e
 ```
 
-The Vite output is a client-only static site in `dist/`, suitable for static Vercel hosting. This repository does not include deployment configuration because deployment is not part of Phase 1.
+The Vite output is a client-only static site in `dist/`, including `sw.js`. `vercel.json` is the hosting configuration. A preview deploy comes before production.
 
 See [PROJECT_SPEC.md](./PROJECT_SPEC.md) for product invariants and the permanent format boundary.
