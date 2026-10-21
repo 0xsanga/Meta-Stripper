@@ -29,7 +29,7 @@ Meta Stripper removes removable file-level metadata. It does not remove visible 
 
 For direct PNG stripping, the signature and all retained chunks—including IDAT, PLTE, and tRNS—are copied byte-for-byte, so removing metadata cannot increase the file size. eXIf, iCCP, presentation-sensitive ancillary chunks, and uncertain unsafe-to-copy chunks conservatively use the canvas fallback. Browser PNG rendering in that fallback may normalise colour values, so canvas rebuilding is not described as byte-for-byte lossless.
 
-JPEG/JPG and static PNG are the permanent supported image formats. Animated PNG remains unsupported and is never flattened. No other image formats are planned, and no additional format architecture is included; changing that boundary requires an explicit instruction.
+JPEG/JPG and static PNG are the supported image formats. MP4 and MOV metadata is removed from the container without recompressing the frames. Animated PNG remains unsupported and is never flattened. A SynthID watermark woven into frames is not metadata and is not removed.
 
 ## Offline install
 

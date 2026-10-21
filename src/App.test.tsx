@@ -78,16 +78,35 @@ describe('Meta Stripper interface', () => {
   it('exposes the private upload state and accessible file picker', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: /leave the image/i })).toBeInTheDocument()
-    expect(screen.getByLabelText('Choose a JPEG or PNG image')).toHaveAttribute('accept', '.jpg,.jpeg,.png,image/jpeg,image/png')
+    expect(screen.getByLabelText('Choose a JPEG, PNG, or video')).toHaveAttribute('accept', '.jpg,.jpeg,.png,.mp4,.mov,image/jpeg,image/png,video/mp4,video/quicktime')
     expect(screen.getByText(/nothing is uploaded/i)).toBeInTheDocument()
     expect(document.title).toContain(PRODUCT.name)
+  })
+
+  it('reads a gallery photo before the picker releases it', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    const source = makeJpeg(segment(0xfe, asciiBytes('private note')))
+    const bytes = new ArrayBuffer(source.byteLength)
+    new Uint8Array(bytes).set(source)
+    const input = screen.getByLabelText('Choose a JPEG, PNG, or video')
+    const file = new File([bytes], '1000763815.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: async () => {
+        if ((input as HTMLInputElement).value === '') throw new DOMException('The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.', 'NotReadableError')
+        return bytes
+      },
+    })
+    await user.upload(input, file)
+    expect(await screen.findByText('1 removable block found')).toBeInTheDocument()
+    expect(screen.queryByText(/could not be read/i)).not.toBeInTheDocument()
   })
 
   it('moves through inspection, cleaning, verified success, and retains the assigned download name', async () => {
     const user = userEvent.setup()
     render(<App />)
     const { file } = makeFile()
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), file)
 
     expect(await screen.findByRole('heading', { name: '1 removable block found' })).toBeInTheDocument()
     expect(screen.getByText('JPEG comment')).toBeInTheDocument()
@@ -108,7 +127,7 @@ describe('Meta Stripper interface', () => {
     const user = userEvent.setup()
     vi.mocked(readJpegDimensions).mockImplementationOnce(() => new Promise(() => undefined))
     const firstRender = render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile().file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makeFile().file)
     expect(screen.getByRole('heading', { name: /inspecting your image/i })).toBeInTheDocument()
     expect(screen.getByText('Inspecting the image locally.')).toBeInTheDocument()
     firstRender.unmount()
@@ -116,7 +135,7 @@ describe('Meta Stripper interface', () => {
     vi.mocked(readJpegDimensions).mockResolvedValueOnce({ width: 1600, height: 1200 })
     vi.mocked(cleanJpeg).mockImplementationOnce(() => new Promise(() => undefined))
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile().file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makeFile().file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(screen.getByRole('heading', { name: /removing metadata/i })).toBeInTheDocument()
     expect(screen.getByText('Removing metadata and verifying the image locally.')).toBeInTheDocument()
@@ -126,7 +145,7 @@ describe('Meta Stripper interface', () => {
     const user = userEvent.setup()
     render(<App />)
     const { file } = makeFile('renamed.png')
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), file)
     expect(await screen.findByRole('alert')).toHaveTextContent(/extension does not match/i)
     expect(screen.getByText(/no file number was used/i)).toBeInTheDocument()
     expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('1')
@@ -153,7 +172,7 @@ describe('Meta Stripper interface', () => {
     const user = userEvent.setup()
     render(<App />)
     const { file } = makePngFile('artwork.png', [pngChunk('tEXt', pngAscii('Author\0Ada'))])
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), file)
 
     expect(await screen.findByRole('heading', { name: /1 removable block found/i })).toBeInTheDocument()
     expect(screen.getByText(/PNG ·/)).toBeInTheDocument()
@@ -171,11 +190,11 @@ describe('Meta Stripper interface', () => {
   it('shares one sequence across JPEG and PNG results', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile().file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makeFile().file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByText('MS1.jpg')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /clean another image/i }))
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('artwork.png', [pngChunk('tEXt', pngAscii('Author\0Ada'))]).file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makePngFile('artwork.png', [pngChunk('tEXt', pngAscii('Author\0Ada'))]).file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByText('MS2.png')).toBeInTheDocument()
     expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('3')
@@ -185,7 +204,7 @@ describe('Meta Stripper interface', () => {
     const user = userEvent.setup()
     render(<App />)
     const animation = pngChunk('acTL', [0, 0, 0, 2, 0, 0, 0, 0])
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('animated.png', [animation]).file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makePngFile('animated.png', [animation]).file)
     expect(await screen.findByText(/This PNG is animated/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /deep clean/i })).toBeDisabled()
     expect(screen.getByText(/flatten or damage the animation/i)).toBeInTheDocument()
@@ -197,7 +216,7 @@ describe('Meta Stripper interface', () => {
     vi.mocked(cleanPng).mockRejectedValueOnce(new Error('Direct strip verification failed safely.'))
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('noted.png', [pngChunk('tEXt', pngAscii('Author\0Ada'))]).file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makePngFile('noted.png', [pngChunk('tEXt', pngAscii('Author\0Ada'))]).file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/direct strip verification failed safely/i)
     expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('1')
@@ -208,7 +227,7 @@ describe('Meta Stripper interface', () => {
     const user = userEvent.setup()
     render(<App />)
     const exif = pngChunk('eXIf', [0x49, 0x49, 0x2a, 0, 8, 0, 0, 0])
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('oriented.png', [exif]).file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makePngFile('oriented.png', [exif]).file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/canvas fallback failed safely/i)
     expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('1')
@@ -227,7 +246,7 @@ describe('Meta Stripper interface', () => {
     const user = userEvent.setup()
     render(<App />)
     const profile = pngChunk('iCCP', pngAscii('profile\0\0data'))
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makePngFile('profiled.png', [profile]).file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makePngFile('profiled.png', [profile]).file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     expect(await screen.findByText(/pixels were rebuilt to safely normalise orientation or colour interpretation/i)).toBeInTheDocument()
   })
@@ -235,7 +254,7 @@ describe('Meta Stripper interface', () => {
   it('rejects an oversized JPEG before decoding it', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), withFrame(15_000, 15_000, 'huge.jpg'))
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), withFrame(15_000, 15_000, 'huge.jpg'))
     expect(await screen.findByRole('alert')).toHaveTextContent(/too large to process safely/i)
     expect(vi.mocked(readJpegDimensions)).not.toHaveBeenCalled()
     expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('1')
@@ -245,7 +264,7 @@ describe('Meta Stripper interface', () => {
     vi.mocked(readJpegDimensions).mockImplementation(async (blob) => requireSafeJpegFrame(new Uint8Array(await blob.arrayBuffer())))
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [
       withFrame(6000, 6000, 'large-1.jpg'),
       withFrame(6000, 6000, 'large-2.jpg'),
       withFrame(6000, 6000, 'large-3.jpg'),
@@ -261,7 +280,7 @@ describe('Meta Stripper interface', () => {
     vi.mocked(readJpegDimensions).mockImplementationOnce(() => new Promise(() => undefined))
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile('first.jpg').file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makeFile('first.jpg').file)
     expect(await screen.findByRole('heading', { name: /inspecting your image/i })).toBeInTheDocument()
     const panel = document.querySelector('.add-panel')
     fireEvent.drop(panel!, { dataTransfer: { files: [makeFile('second.jpg').file] } })
@@ -272,7 +291,7 @@ describe('Meta Stripper interface', () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile().file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makeFile().file)
     await user.click(await screen.findByRole('button', { name: /deep clean/i }))
     await screen.findByText('MS1.jpg')
     await user.click(screen.getByText('Numbering settings'))
@@ -285,7 +304,7 @@ describe('Meta Stripper interface', () => {
   it('shows a direct JPEG strip when orientation and colour do not need a rebuild', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), makeFile().file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), makeFile().file)
     expect(await screen.findByText(/direct metadata strip/i)).toBeInTheDocument()
   })
 
@@ -295,7 +314,7 @@ describe('Meta Stripper interface', () => {
     const bytes = makeJpeg(segment(0xe1, exifPayload(6)))
     const file = new File([Uint8Array.from(bytes)], 'turned.jpg', { type: 'image/jpeg' })
     Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), file)
     expect(await screen.findByText(/canvas rebuild/i)).toBeInTheDocument()
   })
 
@@ -305,7 +324,7 @@ describe('Meta Stripper interface', () => {
     const file = new File([Uint8Array.from(bytes)], 'plain.jpg', { type: 'image/jpeg' })
     Object.defineProperty(file, 'arrayBuffer', { value: async () => bytes.buffer })
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), file)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), file)
 
     expect(await screen.findByRole('heading', { name: 'No removable metadata' })).toBeInTheDocument()
     expect(screen.getByText(/No file number was used/i)).toBeInTheDocument()

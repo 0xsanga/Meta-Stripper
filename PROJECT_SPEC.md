@@ -66,7 +66,7 @@ Two or more verified results may be downloaded together as `Meta-Stripper-MS<low
 2. Static PNG inspection, adaptive direct-strip/canvas cleaning, transparency preservation, verification, APNG refusal, and the shared MS sequence. Complete.
 3. Local queue, sequential batch cleaning, accessible progress and recovery, deterministic in-memory ZIP export, and resource cleanup. Complete.
 
-JPEG/JPG and static PNG remain the complete format boundary. No additional format support, abstraction, or dependency belongs in the project unless explicitly instructed.
+JPEG/JPG and static PNG remain the image formats. MP4 and MOV are cleaned as containers: C2PA, XMP, encoder tags, and other movie metadata boxes are removed and chunk offsets are repaired. The media samples are not decoded or recompressed. A metadata tag that names SynthID is removed with those boxes. A SynthID watermark woven into the frames is not metadata and is not removed.
 
 ## Offline shell
 

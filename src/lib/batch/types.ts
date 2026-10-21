@@ -1,6 +1,7 @@
 import type { SupportedImageFormat } from '../fileValidation'
 import type { JpegInspectionReport } from '../jpeg/types'
 import type { PngCleaningStrategy, PngInspectionReport } from '../png/types'
+import type { VideoInspectionReport } from '../video/types'
 
 export type QueueItemStatus =
   | 'inspecting'
@@ -25,7 +26,7 @@ export interface QueueItem {
   file: File
   status: QueueItemStatus
   format?: SupportedImageFormat
-  report?: JpegInspectionReport | PngInspectionReport
+  report?: JpegInspectionReport | PngInspectionReport | VideoInspectionReport
   width?: number
   height?: number
   previewUrl?: string

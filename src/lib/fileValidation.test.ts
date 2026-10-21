@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateImageFile, validateJpegFile } from './fileValidation'
+import { retainChosenFiles, validateImageFile, validateJpegFile } from './fileValidation'
 import { makeJpeg } from '../test/jpegFixtures'
 import { makePng } from '../test/pngFixtures'
 
@@ -35,6 +35,25 @@ describe('JPEG file validation', () => {
   it('rejects extension and signature conflicts in either direction', async () => {
     await expect(validateImageFile(fileWithBytes('jpeg.png', makeJpeg(), 'image/png'))).rejects.toThrow(/extension does not match/i)
     await expect(validateImageFile(fileWithBytes('png.jpg', makePng(), 'image/jpeg'))).rejects.toThrow(/extension does not match/i)
+  })
+
+  it('copies a gallery file before the phone releases it', async () => {
+    const source = makeJpeg()
+    const bytes = new ArrayBuffer(source.byteLength)
+    new Uint8Array(bytes).set(source)
+    let released = false
+    const file = new File([bytes], '1000763815.jpg', { type: 'image/jpeg' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      value: async () => {
+        if (released) throw new DOMException('The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.', 'NotReadableError')
+        return bytes
+      },
+    })
+    const retained = retainChosenFiles([file])
+    released = true
+    const [copy] = await retained
+    await expect(validateImageFile(copy!)).resolves.toMatchObject({ format: 'jpeg' })
+    await expect(copy!.arrayBuffer()).resolves.toBeInstanceOf(ArrayBuffer)
   })
 
   it('rejects a supported MIME type that conflicts with the file contents', async () => {

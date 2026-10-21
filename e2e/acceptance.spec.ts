@@ -22,7 +22,7 @@ const raster = async (page: Page, kind: 'jpeg' | 'png', tone: string) => {
 }
 
 const chooseImages = async (page: Page, files: { name: string; mimeType: string; buffer: Buffer }[]) => {
-  await page.getByLabel('Choose a JPEG or PNG image').setInputFiles(files)
+  await page.getByLabel('Choose a JPEG, PNG, or video').setInputFiles(files)
 }
 
 test('cleans a batch, downloads a result and a ZIP, and reopens offline', async ({ page, context }) => {

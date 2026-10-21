@@ -4,7 +4,7 @@ export interface SequenceCounter {
   readonly persistent: boolean
   readonly warning?: string
   peek(): number
-  assignVerified(extension?: 'jpg' | 'png'): string
+  assignVerified(extension?: 'jpg' | 'png' | 'mp4' | 'mov'): string
   reset(): void
 }
 

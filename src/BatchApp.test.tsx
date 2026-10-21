@@ -65,11 +65,11 @@ describe('Meta Stripper batch workflow', () => {
   it('keeps mixed selections, duplicate names, and original order as distinct queue items', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [
       jpegFile('same.jpg'), pngFile('art.png'), jpegFile('same.jpg'),
     ])
 
-    await screen.findByRole('heading', { name: '3 images' })
+    await screen.findByRole('heading', { name: '3 files' })
     const cards = screen.getAllByRole('article')
     expect(cards).toHaveLength(3)
     expect(cards.map((card) => card.querySelector('.queue-filename')?.textContent)).toEqual(['same.jpg', 'art.png', 'same.jpg'])
@@ -82,14 +82,14 @@ describe('Meta Stripper batch workflow', () => {
     render(<App />)
     const corrupt = new File([new Uint8Array([1, 2, 3])], 'broken.jpg', { type: 'image/jpeg' })
     Object.defineProperty(corrupt, 'arrayBuffer', { value: async () => Uint8Array.from([1, 2, 3]).buffer })
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [jpegFile('good.jpg'), corrupt])
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [jpegFile('good.jpg'), corrupt])
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/not a valid JPEG or PNG/i)
     expect(screen.getByRole('button', { name: 'Deep Clean good.jpg' })).toBeEnabled()
     expect(screen.getByRole('button', { name: /Retry inspection for broken.jpg/ })).toBeEnabled()
 
     const extras = Array.from({ length: BATCH_LIMITS.maxQueuedFiles - 1 }, (_, index) => jpegFile(`extra-${index}.jpg`))
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), extras)
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), extras)
     await waitFor(() => expect(screen.getAllByText(/queue up to 20 files/i)).toHaveLength(2))
     expect(screen.getAllByRole('article')).toHaveLength(2)
   })
@@ -98,7 +98,7 @@ describe('Meta Stripper batch workflow', () => {
     const user = userEvent.setup()
     const animation = pngChunk('acTL', [0, 0, 0, 2, 0, 0, 0, 0])
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [
       jpegFile('still.jpg'), pngFile('animated.png', [animation]),
     ])
 
@@ -126,7 +126,7 @@ describe('Meta Stripper batch workflow', () => {
       throw new Error('PNG verification failed safely.')
     })
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [jpegFile('one.jpg'), pngFile('bad.png'), jpegFile('three.jpg')])
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [jpegFile('one.jpg'), pngFile('bad.png'), jpegFile('three.jpg')])
     await user.click(await screen.findByRole('button', { name: 'Clean all ready (3)' }))
 
     expect(await screen.findByText('MS2.jpg')).toBeInTheDocument()
@@ -145,7 +145,7 @@ describe('Meta Stripper batch workflow', () => {
     vi.mocked(cleanJpeg).mockImplementationOnce(() => first.promise)
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [jpegFile('one.jpg'), jpegFile('two.jpg')])
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [jpegFile('one.jpg'), jpegFile('two.jpg')])
     await user.click(await screen.findByRole('button', { name: 'Clean all ready (2)' }))
     expect(screen.getByText('Cleaning 1 of 2')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Stop after current' }))
@@ -162,7 +162,7 @@ describe('Meta Stripper batch workflow', () => {
     vi.mocked(cleanJpeg).mockImplementationOnce(() => first.promise).mockRejectedValueOnce(new Error('Second item failed.')).mockResolvedValueOnce(cleanedJpeg())
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [jpegFile('one.jpg'), jpegFile('two.jpg')])
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [jpegFile('one.jpg'), jpegFile('two.jpg')])
     const firstButton = await screen.findByRole('button', { name: 'Deep Clean one.jpg' })
     fireEvent.click(firstButton); fireEvent.click(firstButton)
     expect(vi.mocked(cleanJpeg)).toHaveBeenCalledTimes(1)
@@ -180,7 +180,7 @@ describe('Meta Stripper batch workflow', () => {
   it('revokes removed and cleared previews, moves focus, and never reuses an assigned number', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [jpegFile('one.jpg'), jpegFile('two.jpg')])
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [jpegFile('one.jpg'), jpegFile('two.jpg')])
     const cleanButtons = await screen.findAllByRole('button', { name: /Deep Clean/ })
     await user.click(cleanButtons[0]!)
     await screen.findByText('MS1.jpg')
@@ -188,7 +188,7 @@ describe('Meta Stripper batch workflow', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Remove two.jpg from queue' })).toHaveFocus())
     expect(URL.revokeObjectURL).toHaveBeenCalled()
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), jpegFile('three.jpg'))
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), jpegFile('three.jpg'))
     await user.click(await screen.findByRole('button', { name: 'Deep Clean three.jpg' }))
     expect(await screen.findByText('MS2.jpg')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Clear all' }))
@@ -202,7 +202,7 @@ describe('Meta Stripper batch workflow', () => {
   it('revokes every remaining object URL when the interface unmounts', async () => {
     const user = userEvent.setup()
     const view = render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [jpegFile('one.jpg'), pngFile('two.png')])
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [jpegFile('one.jpg'), pngFile('two.png')])
     await screen.findByRole('button', { name: 'Clean all ready (2)' })
     view.unmount()
 
@@ -217,7 +217,7 @@ describe('Meta Stripper batch workflow', () => {
     const plain = new File([Uint8Array.from(plainBytes)], 'plain.jpg', { type: 'image/jpeg' })
     Object.defineProperty(plain, 'arrayBuffer', { value: async () => plainBytes.slice().buffer })
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [plain, jpegFile('note.jpg')])
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [plain, jpegFile('note.jpg')])
 
     expect(await screen.findByRole('heading', { name: 'No removable metadata' })).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Clean all ready (1)' }))
@@ -236,7 +236,7 @@ describe('Meta Stripper batch workflow', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
     const user = userEvent.setup()
     render(<App />)
-    await user.upload(screen.getByLabelText('Choose a JPEG or PNG image'), [jpegFile('one.jpg'), pngFile('two.png')])
+    await user.upload(screen.getByLabelText('Choose a JPEG, PNG, or video'), [jpegFile('one.jpg'), pngFile('two.png')])
     await user.click(await screen.findByRole('button', { name: 'Clean all ready (2)' }))
     const zipButton = await screen.findByRole('button', { name: 'Download all as ZIP (2)' })
     expect(localStorage.getItem(PRODUCT.sequenceStorageKey)).toBe('3')

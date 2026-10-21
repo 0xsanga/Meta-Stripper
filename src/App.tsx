@@ -4,7 +4,7 @@ import { assertDecodedBudget, reservedDecodedBytes } from './lib/batch/memory'
 import { assertBatchAdditionAllowed, createQueueItems, summarizeQueue } from './lib/batch/queue'
 import type { QueueItem } from './lib/batch/types'
 import { createVerifiedZip } from './lib/batch/zip'
-import { validateImageFile, type SupportedImageFormat } from './lib/fileValidation'
+import { readableFileError, retainChosenFiles, validateImageFile, type SupportedImageFormat } from './lib/fileValidation'
 import { formatBytes } from './lib/format'
 import { cleanJpeg, readJpegDimensions, requireSafeJpegFrame } from './lib/jpeg/cleaner'
 import { inspectJpeg } from './lib/jpeg/parser'
@@ -17,6 +17,10 @@ import { selectPngCleaningStrategy } from './lib/png/strategy'
 import { verifyCleanedPng } from './lib/png/stripper'
 import type { PngCleaningStrategy, PngInspectionReport, PngMetadataBlock } from './lib/png/types'
 import { createSequenceCounter } from './lib/sequenceCounter'
+import { cleanVideo, inspectVideo } from './lib/video/cleaner'
+import { verifyCleanedVideo } from './lib/video/stripper'
+import { selectVideoCleaningStrategy } from './lib/video/strategy'
+import type { VideoInspectionReport } from './lib/video/types'
 
 const PAGE_TITLE = `${PRODUCT.name}: Private image metadata cleaner`
 if (typeof document !== 'undefined') document.title = PAGE_TITLE
@@ -49,6 +53,12 @@ const displayBlocksFor = (item: QueueItem): DisplayBlock[] => {
       approximateBytes: block.approximateBytes, explanation: block.explanation, kind: block.kind, removable: true,
     }))
   }
+  if ((item.format === 'mp4' || item.format === 'mov') && item.report && 'isVideo' in item.report) {
+    return (item.report as VideoInspectionReport).metadataBlocks.map((block) => ({
+      category: block.name, name: block.name, locator: `Video box ${block.box}`,
+      approximateBytes: block.approximateBytes, explanation: block.explanation, kind: block.kind, removable: true,
+    }))
+  }
   if (item.format === 'png' && item.report) {
     return (item.report as PngInspectionReport).metadataBlocks.map((block) => ({
       category: pngCategoryLabel[block.category], name: block.name, locator: `PNG chunk ${block.chunkType}`,
@@ -59,13 +69,17 @@ const displayBlocksFor = (item: QueueItem): DisplayBlock[] => {
 }
 
 const removableCountFor = (item: QueueItem): number => displayBlocksFor(item).filter((block) => block.removable).length
-const formatName = (format?: SupportedImageFormat): string => format === 'png' ? 'PNG' : format === 'jpeg' ? 'JPEG' : 'Unknown'
+const formatName = (format?: SupportedImageFormat): string => format === 'png' ? 'PNG' : format === 'jpeg' ? 'JPEG' : format === 'mp4' ? 'MP4' : format === 'mov' ? 'MOV' : 'Unknown'
+const fileExtension = (format?: SupportedImageFormat): 'jpg' | 'png' | 'mp4' | 'mov' => format === 'png' ? 'png' : format === 'mp4' ? 'mp4' : format === 'mov' ? 'mov' : 'jpg'
+const mediaType = (format?: SupportedImageFormat): string => format === 'png' ? 'image/png' : format === 'mp4' ? 'video/mp4' : format === 'mov' ? 'video/quicktime' : 'image/jpeg'
+const isVideo = (format?: SupportedImageFormat): boolean => format === 'mp4' || format === 'mov'
 const statusLabel: Record<QueueItem['status'], string> = {
   inspecting: 'Inspecting', ready: 'Ready', 'already-clean': 'Already clean', cleaning: 'Cleaning', verified: 'Verified clean', unsupported: 'Unsupported', failed: 'Failed',
 }
 
 const resultExplanation = (item: QueueItem): string => {
   if (item.result?.strategy === 'already-clean') return 'No removable metadata was found, so the original image bytes were kept.'
+  if (item.result?.strategy === 'direct-strip' && isVideo(item.format)) return 'Metadata removed without recompressing the video.'
   if (item.result?.strategy === 'direct-strip') return 'Metadata removed without recompressing the image pixels.'
   if (item.format === 'png') return 'The pixels were rebuilt to safely normalise orientation or colour interpretation. Browser rendering may normalise colour values.'
   return 'Rebuilt at high JPEG quality with orientation normalised.'
@@ -84,15 +98,23 @@ function Header() {
 function UploadPanel({ onFiles, compact = false, disabled = false }: { onFiles: (files: File[]) => void; compact?: boolean; disabled?: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
-  const receiveFiles = (files: FileList) => onFiles(Array.from(files))
+  const keepFiles = (files: FileList) => {
+    const pending = Array.from(files)
+    void retainChosenFiles(pending).then(onFiles)
+  }
   const drop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault(); setDragging(false)
     if (disabled || !event.dataTransfer.files.length) return
-    receiveFiles(event.dataTransfer.files)
+    keepFiles(event.dataTransfer.files)
   }
   return <div className={`${compact ? 'add-panel' : 'drop-zone'} ${dragging ? 'is-dragging' : ''}`} onDragOver={(event) => { event.preventDefault(); if (!disabled) setDragging(true) }} onDragLeave={() => setDragging(false)} onDrop={drop}>
-    <input ref={inputRef} id="file-picker" className="sr-only" type="file" multiple accept=".jpg,.jpeg,.png,image/jpeg,image/png" aria-label="Choose a JPEG or PNG image" disabled={disabled} onChange={(event) => { if (event.target.files?.length) receiveFiles(event.target.files); event.target.value = '' }} />
-    {compact ? <><div><strong>Add images</strong><span>Drop more here, or choose files</span></div><button className="button button-light" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Add images</button></> : <><div className="drop-copy"><h2>Drop an image here</h2><p>One file, or several. They stay in this tab until you clear them.</p><p className="file-note">JPG, JPEG, or static PNG · Up to {BATCH_LIMITS.maxQueuedFiles} files / {BATCH_LIMITS.maxCombinedSourceBytes / 1024 / 1024} MB · Nothing is uploaded</p></div><button className="button button-dark" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Choose images</button></>}
+    <input ref={inputRef} id="file-picker" className="sr-only" type="file" multiple accept=".jpg,.jpeg,.png,.mp4,.mov,image/jpeg,image/png,video/mp4,video/quicktime" aria-label="Choose a JPEG, PNG, or video" disabled={disabled} onChange={(event) => {
+      const selected = event.target.files
+      if (!selected?.length) return
+      const pending = Array.from(selected)
+      void retainChosenFiles(pending).then((files) => { event.target.value = ''; onFiles(files) })
+    }} />
+    {compact ? <><div><strong>Add images</strong><span>Drop more here, or choose files</span></div><button className="button button-light" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Add images</button></> : <><div className="drop-copy"><h2>Drop an image here</h2><p>One file, or several. They stay in this tab until you clear them.</p><p className="file-note">JPG, JPEG, PNG, MP4, or MOV · Up to {BATCH_LIMITS.maxQueuedFiles} files / {BATCH_LIMITS.maxCombinedSourceBytes / 1024 / 1024} MB · Nothing is uploaded</p></div><button className="button button-dark" type="button" disabled={disabled} onClick={() => inputRef.current?.click()}>Choose images</button></>}
   </div>
 }
 
@@ -103,9 +125,10 @@ function QueueItemCard({ item, actionsDisabled, onClean, onDownloadClean, onRetr
   const removable = blocks.filter((block) => block.removable)
   const categories = [...new Set(blocks.map((block) => block.category))]
   const pngReport = item.format === 'png' ? item.report as PngInspectionReport | undefined : undefined
+  const videoReport = isVideo(item.format) && item.report && 'isVideo' in item.report ? item.report as VideoInspectionReport : undefined
   const imageUrl = item.result?.downloadUrl ?? item.previewUrl
   return <article className={`queue-card status-${item.status}`} aria-labelledby={`item-title-${item.id}`}>
-    <div className="queue-thumb">{imageUrl ? <img src={imageUrl} alt={`Preview of ${item.file.name}`} /> : <span>{item.status === 'inspecting' ? <span className="spinner small" /> : null}</span>}</div>
+    <div className="queue-thumb">{imageUrl ? (isVideo(item.format) ? <video src={imageUrl} muted playsInline preload="metadata" aria-label={`Preview of ${item.file.name}`} /> : <img src={imageUrl} alt={`Preview of ${item.file.name}`} />) : <span>{item.status === 'inspecting' ? <span className="spinner small" /> : null}</span>}</div>
     <div className="queue-content">
       <div className="queue-heading"><div><p id={`item-title-${item.id}`} className="queue-filename" title={item.file.name}>{item.file.name}</p><span>{formatName(item.format)}{item.width && item.height ? ` · ${item.width.toLocaleString()} × ${item.height.toLocaleString()} px` : ''} · {formatBytes(item.file.size)}</span></div><span className={`status-pill status-pill-${item.status}`}>{statusLabel[item.status]}</span></div>
       {(item.status === 'ready' || item.status === 'already-clean' || item.status === 'verified') && <div className="queue-report">
@@ -115,6 +138,7 @@ function QueueItemCard({ item, actionsDisabled, onClean, onDownloadClean, onRetr
         {item.status === 'already-clean' && <p className="strategy-preview">Nothing removable was found. Downloading keeps the original bytes and assigns the next MS name.</p>}
         {item.knownStrategy && item.status === 'ready' && <p className="strategy-preview">Planned method: <strong>{item.knownStrategy === 'direct-strip' ? 'direct metadata strip' : 'canvas rebuild'}</strong></p>}
         {pngReport && <p className="transparency-inline">PNG transparency is preserved.</p>}
+        {videoReport?.synthIdMetadata && <p className="strategy-preview">A metadata tag names SynthID and will be removed. A watermark woven into the frames will remain.</p>}
         {item.result && <div className="verified-result"><span className="assigned-name">{item.result.filename}</span><p>{resultExplanation(item)}</p></div>}
       </div>}
       {item.status === 'unsupported' && <p className="item-alert" role="status"><strong>This PNG is animated.</strong> Cleaning is unavailable because rebuilding would flatten or damage the animation. No file number was used.</p>}
@@ -186,7 +210,7 @@ export function App() {
         setAnnouncement(status === 'already-clean'
           ? `${item.file.name} is already clean. No file number was used.`
           : `${item.file.name} is ready. PNG with ${report.metadataBlocks.filter((block) => block.removable).length} removable metadata blocks.`)
-      } else {
+      } else if (format === 'jpeg') {
         const report = inspectJpeg(buffer)
         const frame = requireSafeJpegFrame(buffer)
         assertDecodedBudget(reservedDecodedBytes(itemsRef.current, item.id), frame.width, frame.height)
@@ -199,10 +223,20 @@ export function App() {
         setAnnouncement(status === 'already-clean'
           ? `${item.file.name} is already clean. No file number was used.`
           : `${item.file.name} is ready. JPEG with ${report.metadataBlocks.length} removable metadata blocks.`)
+      } else {
+        const report = inspectVideo(buffer, item.file.name)
+        if (!liveIdsRef.current.has(item.id)) return
+        const knownStrategy = selectVideoCleaningStrategy(report)
+        const previewUrl = URL.createObjectURL(item.file)
+        const status = knownStrategy === 'already-clean' ? 'already-clean' : 'ready'
+        updateItem(item.id, { format, report, width: report.width, height: report.height, previewUrl, knownStrategy, status })
+        setAnnouncement(status === 'already-clean'
+          ? `${item.file.name} is already clean. No file number was used.`
+          : `${item.file.name} is ready. ${formatName(format)} with ${report.metadataBlocks.length} removable metadata blocks.`)
       }
     } catch (caught) {
       if (!liveIdsRef.current.has(item.id)) return
-      const error = caught instanceof Error ? caught.message : 'This image could not be inspected safely.'
+      const error = readableFileError(caught, 'This image could not be inspected safely.')
       updateItem(item.id, { status: 'failed', error, failureStage: 'inspection' })
       setAnnouncement(`${item.file.name} inspection failed. ${error}`)
     } finally {
@@ -229,16 +263,16 @@ export function App() {
     updateItem(item.id, { status: 'cleaning', error: undefined, failureStage: undefined }); setProcessingId(item.id)
     setAnnouncement(item.knownStrategy === 'canvas-rebuild' ? 'Deep cleaning and verifying the image locally.' : 'Removing metadata and verifying the image locally.')
     try {
-      const cleaned = item.format === 'png' ? await cleanPng(item.file) : await cleanJpeg(item.file)
+      const cleaned = item.format === 'png' ? await cleanPng(item.file) : item.format === 'jpeg' ? await cleanJpeg(item.file) : await cleanVideo(item.file)
       const strategy: PngCleaningStrategy = cleaned.strategy
       const resultUrl = URL.createObjectURL(cleaned.blob)
-      const filename = counter.assignVerified(item.format === 'png' ? 'png' : 'jpg')
+      const filename = counter.assignVerified(fileExtension(item.format))
       const removedBlocks = removableCountFor(item)
       if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
       updateItem(item.id, { status: 'verified', previewUrl: undefined, result: { blob: cleaned.blob, bytes: cleaned.bytes, filename, downloadUrl: resultUrl, strategy, removedBlocks } })
       setNextNumber(counter.peek()); setAnnouncement(`${item.file.name} is verified clean and ready as ${filename}.`); return true
     } catch (caught) {
-      const error = caught instanceof Error ? caught.message : 'Cleaning failed safely and no file number was used.'
+      const error = readableFileError(caught, 'Cleaning failed safely and no file number was used.')
       updateItem(item.id, { status: 'failed', error, failureStage: 'cleaning' }); setAnnouncement(`${item.file.name} cleaning failed. No file number was used.`); return false
     } finally { setProcessingId(null) }
   }
@@ -278,11 +312,12 @@ export function App() {
     try {
       const source = new Uint8Array(await item.file.arrayBuffer())
       if (item.format === 'png') verifyCleanedPng(source)
-      else verifyCleanedJpeg(source)
+      else if (item.format === 'jpeg') verifyCleanedJpeg(source)
+      else verifyCleanedVideo(source)
       const output = new ArrayBuffer(source.byteLength)
       new Uint8Array(output).set(source)
-      const blob = new Blob([output], { type: item.format === 'png' ? 'image/png' : 'image/jpeg' })
-      const filename = counter.assignVerified(item.format === 'png' ? 'png' : 'jpg')
+      const blob = new Blob([output], { type: mediaType(item.format) })
+      const filename = counter.assignVerified(fileExtension(item.format))
       const downloadUrl = URL.createObjectURL(blob)
       if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
       updateItem(item.id, { status: 'verified', previewUrl: undefined, result: { blob, bytes: new Uint8Array(output), filename, downloadUrl, strategy: 'already-clean', removedBlocks: 0 } })
@@ -296,7 +331,7 @@ export function App() {
       anchor.remove()
       setAnnouncement(`${item.file.name} is verified clean and ready as ${filename}.`)
     } catch (caught) {
-      const error = caught instanceof Error ? caught.message : 'This image could not be saved safely.'
+      const error = readableFileError(caught, 'This image could not be saved safely.')
       updateItem(item.id, { status: 'failed', error, failureStage: 'cleaning' })
       setAnnouncement(`${item.file.name} could not be saved. No file number was used.`)
     } finally {
@@ -354,11 +389,11 @@ export function App() {
   return <div className="app-shell">
     <Header />
     <main id="main">
-      <section className="hero" aria-labelledby="page-heading"><p className="eyebrow">JPEG + PNG</p><h1 id="page-heading">Leave the image.<br />Lose the metadata.</h1><p>Clean one image or a small batch. Inspection, verification, and ZIP creation stay in this browser.</p></section>
+      <section className="hero" aria-labelledby="page-heading"><p className="eyebrow">JPEG + PNG + video</p><h1 id="page-heading">Leave the image.<br />Lose the metadata.</h1><p>Clean one image or a small batch. Inspection, verification, and ZIP creation stay in this browser.</p></section>
       {items.length === 0 ? <>{queueError && <p className="error-message" role="alert">{queueError}</p>}<UploadPanel onFiles={addFiles} /></> : <section className="queue-shell" aria-labelledby="queue-heading">
         <UploadPanel onFiles={addFiles} compact disabled={actionsDisabled} />
         {queueError && <div className="queue-error" role="alert">{queueError}</div>}
-        <div className="queue-toolbar"><div><h2 id="queue-heading">{summary.total} {summary.total === 1 ? 'image' : 'images'}</h2></div><div className="toolbar-actions">{batchProgress.active ? <button className="button button-light" type="button" disabled={batchProgress.stopping} onClick={stopBatch}>{batchProgress.stopping ? 'Stopping after current…' : 'Stop after current'}</button> : <button className="button button-dark" type="button" disabled={actionsDisabled || summary.ready === 0} onClick={cleanAll}>Clean all ready ({summary.ready})</button>}<button className="text-button" type="button" disabled={actionsDisabled} onClick={clearAll}>Clear all</button></div></div>
+        <div className="queue-toolbar"><div><h2 id="queue-heading">{summary.total} {summary.total === 1 ? 'file' : 'files'}</h2></div><div className="toolbar-actions">{batchProgress.active ? <button className="button button-light" type="button" disabled={batchProgress.stopping} onClick={stopBatch}>{batchProgress.stopping ? 'Stopping after current…' : 'Stop after current'}</button> : <button className="button button-dark" type="button" disabled={actionsDisabled || summary.ready === 0} onClick={cleanAll}>Clean all ready ({summary.ready})</button>}<button className="text-button" type="button" disabled={actionsDisabled} onClick={clearAll}>Clear all</button></div></div>
         {batchProgress.active && <div className="batch-progress"><div><strong>Cleaning {batchProgress.current} of {batchProgress.total}</strong><span>One image at a time</span></div><progress aria-label="Batch cleaning progress" value={batchProgress.completed} max={batchProgress.total}>{batchProgress.completed} of {batchProgress.total}</progress></div>}
         <div className="summary-grid" aria-label="Queue summary"><div className="summary-counts"><div><span>Total</span><strong>{summary.total}</strong></div><div><span>Ready</span><strong>{summary.ready}</strong></div><div><span>Verified</span><strong>{summary.verified}</strong></div><div><span>Failed</span><strong>{summary.failed}</strong></div></div><div className="summary-sizes"><div><span>Blocks removed</span><strong>{summary.removedBlocks}</strong></div><div><span>Original</span><strong>{formatBytes(summary.originalBytes)}</strong></div><div><span>Cleaned</span><strong>{formatBytes(summary.cleanedBytes)}</strong></div></div></div>
         <div className="queue-list">{items.map((item) => <QueueItemCard key={item.id} item={item} actionsDisabled={actionsDisabled} onClean={() => cleanOne(item.id)} onDownloadClean={() => downloadAlreadyClean(item.id)} onRetry={() => retryItem(item.id)} onRemove={() => removeItem(item.id)} onCleanAnother={items.length === 1 && item.status === 'verified' ? clearAll : undefined} />)}</div>
@@ -366,9 +401,9 @@ export function App() {
       </section>}
       <div className="live-region" aria-live="polite" aria-atomic="true">{announcement}</div>
       <PrivacyNote />
-      <section className="limitations" aria-labelledby="limits-title"><p className="eyebrow">Verified clean</p><h2 id="limits-title">File metadata, clearly separated from pixels.</h2><p>“Verified clean” covers removable file-level metadata detected by {PRODUCT.name}. It does not remove visible watermarks, cannot guarantee removal of pixel-level or imperceptible watermarks, and does not guarantee how external platforms classify an image.</p></section>
+      <section className="limitations" aria-labelledby="limits-title"><p className="eyebrow">Verified clean</p><h2 id="limits-title">File metadata, clearly separated from pixels.</h2><p>“Verified clean” covers removable file-level metadata detected by {PRODUCT.name}. It does not remove visible watermarks, cannot guarantee removal of pixel-level or imperceptible watermarks, and does not guarantee how external platforms classify a file. SynthID woven into frames is one of those watermarks: a metadata tag that names it can be removed, and the watermark in the frames cannot.</p></section>
       <details className="settings"><summary>Numbering settings</summary><div><p>Next successful file: <strong>MS{nextNumber}</strong> plus its format extension</p><button className="text-button" type="button" disabled={actionsDisabled} onClick={resetCounter}>Reset file counter</button>{counter.warning && <p className="storage-warning" role="status">{counter.warning}</p>}</div></details>
     </main>
-    <footer><span>{PRODUCT.name}</span><span>Browser-only · JPEG and static PNG</span></footer>
+    <footer><span>{PRODUCT.name}</span><span>Browser-only · JPEG, PNG, MP4, and MOV</span></footer>
   </div>
 }

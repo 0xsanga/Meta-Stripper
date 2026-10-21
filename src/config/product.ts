@@ -7,6 +7,7 @@ export const PRODUCT = {
 
 export const LIMITS = {
   maxFileBytes: 25 * 1024 * 1024,
+  maxVideoBytes: 150 * 1024 * 1024,
   maxPixels: 40_000_000,
   maxDimension: 12_000,
   jpegQuality: 0.98,
